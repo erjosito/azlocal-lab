@@ -292,6 +292,42 @@ $path = "C:\LocalBox\Generate-ARM-Template.ps1"
 
 Then re-launch the setup with the retry script.
 
+#### 9. Cluster validation fails — unsupported OS version (upstream bug)
+
+**Symptom**: Step 10 (cluster validation) fails with `"Unsupported Azure Stack HCI OS Version. The version of Azure Stack HCI OS currently installed on your system is not supported for new deployments."`.
+
+**Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230**, which Azure no longer accepts for new cluster deployments. Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
+
+**Fix**: Install Windows updates on the nested VMs to bring the OS to a supported version, then retry cluster validation:
+
+```powershell
+# Inside the LocalBox-Client VM — run on each nested node
+$cred = New-Object PSCredential("Administrator", (ConvertTo-SecureString "Microsoft123!" -AsPlainText -Force))
+
+# AzLHOST1
+Invoke-Command -VMName "AzLHOST1" -Credential $cred -ScriptBlock {
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+    Install-Module PSWindowsUpdate -Force
+    Get-WindowsUpdate -Install -AcceptAll -AutoReboot
+}
+
+# AzLHOST2
+Invoke-Command -VMName "AzLHOST2" -Credential $cred -ScriptBlock {
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+    Install-Module PSWindowsUpdate -Force
+    Get-WindowsUpdate -Install -AcceptAll -AutoReboot
+}
+```
+
+After the nodes reboot and come back up, retry the cluster validation:
+
+```powershell
+New-AzResourceGroupDeployment -Name 'localcluster-validate' `
+    -ResourceGroupName $env:resourceGroup `
+    -TemplateFile "C:\LocalBox\azlocal.json" `
+    -TemplateParameterFile "C:\LocalBox\azlocal.parameters.json"
+```
+
 ### Checking Logs Inside the VM
 
 If you have RDP or Bastion access, the key log files inside the VM are:
