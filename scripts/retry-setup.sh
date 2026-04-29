@@ -66,6 +66,10 @@ echo ""
 DIAG_SCRIPT='
 $status = @{}
 
+# Check azcopy
+$azcopyVer = try { azcopy --version 2>$null } catch { $null }
+$status["azcopy"] = if ($azcopyVer) { "OK ($azcopyVer)" } else { "MISSING - setup will fail without it" }
+
 # Check storage pool
 $pool = Get-StoragePool -FriendlyName AzLocalPool -ErrorAction SilentlyContinue
 $status["StoragePool"] = if ($pool) { "$($pool.OperationalStatus) ($($pool.HealthStatus))" } else { "NOT FOUND" }
@@ -132,6 +136,35 @@ echo ""
 
 # ── Retry if requested ────────────────────────────────────────────
 if [[ "$ACTION" == "retry" ]]; then
+    echo "─── Pre-flight checks ─────────────────────────────────────────"
+    echo ""
+
+    # Check azcopy is installed (common cause of silent download failures)
+    echo "  Checking azcopy installation inside the VM..."
+    AZCOPY_STATUS=$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" \
+        --command-id RunPowerShellScript \
+        --scripts 'if (Get-Command azcopy -ErrorAction SilentlyContinue) { Write-Output "INSTALLED: $(azcopy --version)" } else { Write-Output "MISSING" }' \
+        --query "value[0].message" -o tsv 2>/dev/null)
+
+    if [[ "$AZCOPY_STATUS" == "MISSING"* ]]; then
+        echo "  azcopy is NOT installed. Installing it now..."
+        INSTALL_RESULT=$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" \
+            --command-id RunPowerShellScript \
+            --scripts 'Invoke-WebRequest -Uri "https://aka.ms/downloadazcopy-v10-windows" -OutFile C:\Temp\azcopy.zip; Expand-Archive C:\Temp\azcopy.zip -DestinationPath C:\Temp\azcopy -Force; $exe = Get-ChildItem C:\Temp\azcopy -Recurse -Filter azcopy.exe | Select-Object -First 1; Copy-Item $exe.FullName C:\Windows\System32\azcopy.exe -Force; Write-Output "OK: $(azcopy --version)"' \
+            --query "value[0].message" -o tsv 2>/dev/null)
+
+        if [[ "$INSTALL_RESULT" == "OK:"* ]]; then
+            echo "  ✓ $INSTALL_RESULT"
+        else
+            echo "  ERROR: Failed to install azcopy." >&2
+            echo "  The setup script will fail without azcopy. Install it manually inside the VM."
+            exit 1
+        fi
+    else
+        echo "  ✓ $AZCOPY_STATUS"
+    fi
+
+    echo ""
     echo "─── Re-launching setup script ───────────────────────────────"
     echo ""
     echo "This will restart C:\\LocalBox\\LocalBoxLogonScript.ps1 inside the VM."

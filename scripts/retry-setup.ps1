@@ -26,8 +26,8 @@ Write-Host ""
 
 # ── Check VM is running ───────────────────────────────────────────
 Write-Host "Checking VM power state..."
-$vmState = az vm get-instance-view -g $ResourceGroup -n $vmName `
-    --query "instanceView.statuses[?starts_with(code,'PowerState/')].displayStatus" -o tsv 2>$null
+$vmJson = az vm get-instance-view -g $ResourceGroup -n $vmName -o json 2>$null | ConvertFrom-Json
+$vmState = ($vmJson.instanceView.statuses | Where-Object { $_.code -like "PowerState/*" }).displayStatus
 
 if ($vmState -ne "VM running") {
     Write-Host "ERROR: VM is not running (state: $vmState)" -ForegroundColor Red
@@ -41,75 +41,128 @@ Write-Host ""
 Write-Host "Running diagnostics inside the VM (this takes ~30 seconds)..."
 Write-Host ""
 
-$diagScript = @'
-$status = @{}
+# Write diagnostic script to temp file (az vm run-command doesn't handle
+# inline multi-line scripts with $ variables reliably on Windows)
+$diagTempFile = Join-Path ([System.IO.Path]::GetTempPath()) "localbox-diag-$(Get-Random).ps1"
+@'
+$azcopyVer = try { azcopy --version 2>$null } catch { $null }
+if ($azcopyVer) { Write-Output "azcopy: OK ($azcopyVer)" } else { Write-Output "azcopy: MISSING - setup will fail without it" }
 
-# Check storage pool
 $pool = Get-StoragePool -FriendlyName AzLocalPool -ErrorAction SilentlyContinue
-$status["StoragePool"] = if ($pool) { "$($pool.OperationalStatus) ($($pool.HealthStatus))" } else { "NOT FOUND" }
+if ($pool) { Write-Output "StoragePool: $($pool.OperationalStatus) ($($pool.HealthStatus))" } else { Write-Output "StoragePool: NOT FOUND" }
 
-# Check V: drive
-$status["VDrive"] = if (Test-Path V:\) { "OK ($(([math]::Round((Get-PSDrive V).Used/1GB,1)) GB used)" } else { "NOT FOUND" }
+if (Test-Path V:\) {
+    $vUsed = [math]::Round((Get-PSDrive V).Used/1GB,1)
+    Write-Output "VDrive: OK ($vUsed GB used)"
+} else { Write-Output "VDrive: NOT FOUND" }
 
-# Check VHD files
-$status["GUI.vhdx"] = if (Test-Path C:\LocalBox\VHD\GUI.vhdx) { "OK ($(([math]::Round((Get-Item C:\LocalBox\VHD\GUI.vhdx).Length/1GB,1)) GB)" } else { "MISSING" }
-$status["AzL-node.vhdx"] = if (Test-Path C:\LocalBox\VHD\AzL-node.vhdx) { "OK ($(([math]::Round((Get-Item C:\LocalBox\VHD\AzL-node.vhdx).Length/1GB,1)) GB)" } else { "MISSING" }
+if (Test-Path C:\LocalBox\VHD\GUI.vhdx) {
+    $guiSize = [math]::Round((Get-Item C:\LocalBox\VHD\GUI.vhdx).Length/1GB,1)
+    Write-Output "GUI.vhdx: OK ($guiSize GB)"
+} else { Write-Output "GUI.vhdx: MISSING" }
 
-# Check Hyper-V VMs
+if (Test-Path C:\LocalBox\VHD\AzL-node.vhdx) {
+    $azlSize = [math]::Round((Get-Item C:\LocalBox\VHD\AzL-node.vhdx).Length/1GB,1)
+    Write-Output "AzL-node.vhdx: OK ($azlSize GB)"
+} else { Write-Output "AzL-node.vhdx: MISSING" }
+
 $vms = Get-VM -ErrorAction SilentlyContinue
-$status["Hyper-V VMs"] = if ($vms) { ($vms | ForEach-Object { "$($_.Name):$($_.State)" }) -join ", " } else { "NONE" }
+if ($vms) {
+    Write-Output "Hyper-V VMs: $(($vms | ForEach-Object { "$($_.Name):$($_.State)" }) -join ', ')"
+} else { Write-Output "Hyper-V VMs: NONE" }
 
-# Check if setup is currently running
-$ps = Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }
-$status["PowerShell processes"] = "$($ps.Count) running"
+$ps = Get-Process powershell -ErrorAction SilentlyContinue
+Write-Output "PowerShell processes: $($ps.Count) running"
 
-# Check last log entries
 $logFile = "C:\LocalBox\Logs\New-LocalBoxCluster.log"
-$lastLog = if (Test-Path $logFile) {
-    $lastWrite = (Get-Item $logFile).LastWriteTime
-    "Last updated: $lastWrite"
-} else { "No log file" }
-$status["Cluster log"] = $lastLog
+if (Test-Path $logFile) {
+    Write-Output "Cluster log: Last updated $(( Get-Item $logFile).LastWriteTime)"
+} else { Write-Output "Cluster log: No log file" }
 
-# Check logon script log
 $logonLog = "C:\LocalBox\Logs\LocalBoxLogonScript.log"
-$logonStatus = if (Test-Path $logonLog) {
-    $lastWrite = (Get-Item $logonLog).LastWriteTime
-    "Last updated: $lastWrite"
-} else { "No log file" }
-$status["Logon script log"] = $logonStatus
+if (Test-Path $logonLog) {
+    Write-Output "Logon script log: Last updated $((Get-Item $logonLog).LastWriteTime)"
+} else { Write-Output "Logon script log: No log file" }
 
-# Output
-foreach ($key in $status.Keys | Sort-Object) {
-    Write-Output "${key}: $($status[$key])"
-}
-
-# Overall assessment
 Write-Output ""
-if ($status["AzL-node.vhdx"] -eq "MISSING") {
+$azlMissing = -not (Test-Path C:\LocalBox\VHD\AzL-node.vhdx)
+$vmCount = if ($vms) { $vms.Count } else { 0 }
+$psCount = if ($ps) { $ps.Count } else { 0 }
+
+if ($azlMissing -and $psCount -le 2) {
     Write-Output "DIAGNOSIS: AzL-node.vhdx is missing. The download failed or was never started."
-    Write-Output "ACTION: Run retry to re-launch the setup script."
-} elseif ($vms.Count -ge 3) {
-    Write-Output "DIAGNOSIS: Setup appears to be progressing (VMs exist)."
+    Write-Output "ACTION: Run with -Action retry to re-launch the setup script."
+} elseif ($azlMissing -and $psCount -gt 2) {
+    Write-Output "DIAGNOSIS: AzL-node.vhdx is missing but setup appears to be running (downloading?)."
+    Write-Output "ACTION: Wait and check again in 15-20 minutes."
+} elseif ($vmCount -ge 3) {
+    Write-Output "DIAGNOSIS: Setup appears to be progressing ($vmCount VMs exist)."
     Write-Output "ACTION: Wait for completion. Check Arc-enabled servers in the portal."
-} elseif ($ps.Count -gt 2) {
-    Write-Output "DIAGNOSIS: Setup script appears to be running."
+} elseif ($psCount -gt 2) {
+    Write-Output "DIAGNOSIS: Setup script appears to be running ($psCount PowerShell processes)."
     Write-Output "ACTION: Wait for completion (4-5 hours total)."
 } else {
-    Write-Output "DIAGNOSIS: Setup may have completed or failed. Check logs in the VM."
+    Write-Output "DIAGNOSIS: Setup may have completed or stalled. Check logs in the VM."
 }
-'@
+'@ | Set-Content $diagTempFile -Encoding UTF8
 
-$result = az vm run-command invoke -g $ResourceGroup -n $vmName `
-    --command-id RunPowerShellScript `
-    --scripts $diagScript `
-    --query "value[0].message" -o tsv 2>$null
+try {
+    $resultJson = az vm run-command invoke -g $ResourceGroup -n $vmName `
+        --command-id RunPowerShellScript `
+        --scripts "@$diagTempFile" `
+        -o json 2>$null | Out-String | ConvertFrom-Json
 
-Write-Host $result
+    $stdOut = $resultJson.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
+    $stdErr = $resultJson.value | Where-Object { $_.code -like "*StdErr*" } | Select-Object -ExpandProperty message
+
+    if ($stdOut) {
+        Write-Host $stdOut
+    } elseif ($stdErr) {
+        Write-Host "Script encountered errors:" -ForegroundColor Yellow
+        Write-Host $stdErr
+    } else {
+        Write-Host "No output from diagnostics. The VM may still be starting up." -ForegroundColor Yellow
+    }
+} finally {
+    Remove-Item $diagTempFile -ErrorAction SilentlyContinue
+}
 Write-Host ""
 
 # ── Retry if requested ────────────────────────────────────────────
 if ($Action -eq "retry") {
+    Write-Host "--- Pre-flight checks ---" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Check azcopy is installed (common cause of silent download failures)
+    Write-Host "  Checking azcopy installation inside the VM..."
+    $azcopyCheck = az vm run-command invoke -g $ResourceGroup -n $vmName `
+        --command-id RunPowerShellScript `
+        --scripts "if (Get-Command azcopy -ErrorAction SilentlyContinue) { Write-Output \"INSTALLED: `$(azcopy --version)\" } else { Write-Output 'MISSING' }" `
+        -o json 2>$null | Out-String | ConvertFrom-Json
+    $azcopyStatus = $azcopyCheck.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
+
+    if ($azcopyStatus -like "MISSING*") {
+        Write-Host "  azcopy is NOT installed. Installing it now..." -ForegroundColor Yellow
+        $installScript = 'Invoke-WebRequest -Uri "https://aka.ms/downloadazcopy-v10-windows" -OutFile C:\Temp\azcopy.zip; Expand-Archive C:\Temp\azcopy.zip -DestinationPath C:\Temp\azcopy -Force; $exe = Get-ChildItem C:\Temp\azcopy -Recurse -Filter azcopy.exe | Select-Object -First 1; Copy-Item $exe.FullName C:\Windows\System32\azcopy.exe -Force; Write-Output "OK: $(azcopy --version)"'
+        $installResult = az vm run-command invoke -g $ResourceGroup -n $vmName `
+            --command-id RunPowerShellScript `
+            --scripts $installScript `
+            -o json 2>$null | Out-String | ConvertFrom-Json
+        $installOut = $installResult.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
+        if ($installOut -like "OK:*") {
+            Write-Host "  $(([char]0x2713)) $installOut" -ForegroundColor Green
+        } else {
+            $installErr = $installResult.value | Where-Object { $_.code -like "*StdErr*" } | Select-Object -ExpandProperty message
+            Write-Host "  ERROR: Failed to install azcopy." -ForegroundColor Red
+            if ($installErr) { Write-Host "  $installErr" -ForegroundColor Red }
+            Write-Host "  The setup script will fail without azcopy. Install it manually inside the VM."
+            exit 1
+        }
+    } else {
+        Write-Host "  $(([char]0x2713)) $($azcopyStatus.Trim())" -ForegroundColor Green
+    }
+
+    Write-Host ""
     Write-Host "--- Re-launching setup script ---" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "This will restart C:\LocalBox\LocalBoxLogonScript.ps1 inside the VM."
@@ -123,12 +176,13 @@ if ($Action -eq "retry") {
         exit 0
     }
 
-    $retryResult = az vm run-command invoke -g $ResourceGroup -n $vmName `
+    $retryJson = az vm run-command invoke -g $ResourceGroup -n $vmName `
         --command-id RunPowerShellScript `
         --scripts "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File C:\LocalBox\LocalBoxLogonScript.ps1' -WindowStyle Normal; Write-Output 'Setup script re-launched successfully'" `
-        --query "value[0].message" -o tsv 2>$null
+        -o json 2>$null | Out-String | ConvertFrom-Json
 
-    Write-Host $retryResult -ForegroundColor Green
+    $retryOutput = $retryJson.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
+    Write-Host $retryOutput -ForegroundColor Green
     Write-Host ""
     Write-Host "The setup will take 4-5 hours to complete."
     Write-Host "Re-run this script with -Action status to check progress."
