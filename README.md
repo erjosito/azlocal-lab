@@ -32,14 +32,10 @@ LocalBox runs a **Standard_E32s_v6** Azure VM with nested Hyper-V, hosting:
 # 1. Check prerequisites
 ./deploy/prerequisites.sh
 
-# 2. Copy and edit parameters
-cp deploy/main.bicepparam.template deploy/main.bicepparam
-# Edit deploy/main.bicepparam with your values
-
-# 3. Deploy (takes ~30 min for infra + ~4-5 hours for nested setup)
+# 2. Deploy — the script auto-detects settings and prompts for the rest
 ./deploy/deploy.sh --resource-group myLocalBoxLab --location swedencentral
 
-# 4. Start learning!
+# 3. Start learning!
 # Open exercises/00-explore-architecture.md
 ```
 
@@ -49,16 +45,16 @@ cp deploy/main.bicepparam.template deploy/main.bicepparam
 # 1. Check prerequisites
 .\deploy\prerequisites.ps1
 
-# 2. Copy and edit parameters
-Copy-Item deploy\main.bicepparam.template deploy\main.bicepparam
-# Edit deploy\main.bicepparam with your values
-
-# 3. Deploy (takes ~30 min for infra + ~4-5 hours for nested setup)
+# 2. Deploy — the script auto-detects settings and prompts for the rest
 .\deploy\deploy.ps1 -ResourceGroup myLocalBoxLab -Location swedencentral
 
-# 4. Start learning!
+# 3. Start learning!
 # Open exercises\00-explore-architecture.md
 ```
+
+The deploy script will automatically retrieve your tenant ID and the AzureStackHCI Resource Provider
+service principal, then interactively ask for your VM password and optional settings (with sensible defaults).
+If you prefer to pre-build the parameters file manually, see `deploy/main.bicepparam.template`.
 
 ### Alternative: Deploy Using the Official Documentation
 
