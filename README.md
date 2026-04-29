@@ -133,6 +133,116 @@ The LocalBox VM is an **E32s_v6** (32 vCPUs, 256 GB RAM). Estimated costs:
 - 32 ESv6-series vCPUs quota in your target region
 - ~4-5 hours for initial deployment to complete
 
+## Troubleshooting
+
+The LocalBox deployment is a two-phase process: Phase 1 deploys Azure resources via Bicep (~30 min), and Phase 2 runs an automated PowerShell script inside the VM (~4-5 hours) that builds the nested Hyper-V cluster. Phase 2 is where most issues occur.
+
+### Diagnosing Issues
+
+Use the retry-setup script to check the health of the internal setup without needing to RDP into the VM:
+
+```bash
+# Bash
+./scripts/retry-setup.sh --resource-group myLocalBoxLab
+
+# PowerShell
+.\scripts\retry-setup.ps1 -ResourceGroup myLocalBoxLab
+```
+
+This runs diagnostics remotely via `az vm run-command` and reports the status of each component: azcopy, storage pool, virtual drive, VHD files, Hyper-V VMs, and running processes.
+
+### Common Issues
+
+#### 1. azcopy not installed
+
+**Symptom**: `AzL-node.vhdx: MISSING` in diagnostics, but the storage pool and V: drive are healthy.
+
+**Cause**: The VM bootstrap was supposed to install azcopy, but the installation silently failed (network timing, package source issues). Without azcopy, the ~20 GB node VHD download never starts, and the setup script continues without error — leaving the cluster creation to fail later.
+
+**Fix**: The retry-setup script detects this and installs azcopy automatically before re-launching the setup:
+
+```bash
+./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
+
+.\scripts\retry-setup.ps1 -ResourceGroup myLocalBoxLab -Action retry
+```
+
+#### 2. Storage pool timing issue after Hyper-V reboot
+
+**Symptom**: `StoragePool: NOT FOUND` or `VDrive: NOT FOUND` in diagnostics.
+
+**Cause**: The initial setup installs Hyper-V, which requires a VM reboot. After the reboot, the 8 data disks briefly report `CanPool = False` due to a timing race. If the logon script runs too quickly after reboot, the storage pool creation fails.
+
+**Fix**: Run the retry script. On re-run the disks are usually ready, and the script creates the storage pool successfully:
+
+```bash
+./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
+```
+
+#### 3. PowerShell window closed / setup script stopped
+
+**Symptom**: You RDP into the VM and don't see the setup PowerShell window. The diagnostics show few or no Hyper-V VMs, and `PowerShell processes: 1 running` (only your session).
+
+**Cause**: The setup script (`C:\LocalBox\LocalBoxLogonScript.ps1`) runs in a visible PowerShell window as a logon task. If the window is closed, the VM is restarted, or the RDP session drops at the wrong time, the script may stop mid-execution.
+
+**Fix**: The retry script re-launches the logon script. It is designed to be idempotent — it skips steps that already completed:
+
+```bash
+./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
+```
+
+#### 4. NSG rules blocking RDP (port 3389)
+
+**Symptom**: You can't RDP into the LocalBox-Client VM. The VM is running and has a public IP, but the connection times out.
+
+**Cause**: Some Azure subscriptions have policies that periodically remove NSG rules allowing inbound traffic on port 3389.
+
+**Fix**: You don't need RDP for deployment or troubleshooting — all scripts use `az vm run-command` remotely. For exercises that require a desktop session, add Azure Bastion instead:
+
+```bash
+./scripts/add-bastion.sh --resource-group myLocalBoxLab
+
+.\scripts\add-bastion.ps1 -ResourceGroup myLocalBoxLab
+```
+
+#### 5. VHD download incomplete or corrupted
+
+**Symptom**: `AzL-node.vhdx` exists but is much smaller than expected (should be ~20 GB), or Hyper-V VMs fail to start.
+
+**Cause**: The azcopy download was interrupted (network issue, VM restarted during download).
+
+**Fix**: Delete the partial file and re-run the setup. Connect to the VM (via RDP or Bastion) and:
+
+```powershell
+# Inside the VM
+Remove-Item C:\LocalBox\VHD\AzL-node.vhdx -Force
+# Then re-run the setup script
+& C:\LocalBox\LocalBoxLogonScript.ps1
+```
+
+Or use the retry-setup script, which will re-launch the logon script (it detects the missing VHD and re-downloads):
+
+```bash
+./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
+```
+
+### Checking Logs Inside the VM
+
+If you have RDP or Bastion access, the key log files inside the VM are:
+
+| Log | Path | Contents |
+|-----|------|----------|
+| Main setup log | `C:\LocalBox\Logs\LocalBoxLogonScript.log` | Overall setup progress |
+| Cluster creation log | `C:\LocalBox\Logs\New-LocalBoxCluster.log` | Azure Local cluster creation details |
+| Bootstrap log | `C:\LocalBox\Logs\Bootstrap.log` | Initial VM configuration (Hyper-V install, disk setup) |
+
+Tail the logon script log to monitor progress in real time:
+
+```powershell
+# Inside the VM
+Get-Content C:\LocalBox\Logs\LocalBoxLogonScript.log -Tail 30 -Wait
+```
+
 ## References
 
 - [Jumpstart LocalBox Documentation](https://jumpstart.azure.com/azure_jumpstart_localbox/getting_started)
