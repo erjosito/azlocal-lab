@@ -26,6 +26,8 @@ LocalBox runs a **Standard_E32s_v6** Azure VM with nested Hyper-V, hosting:
 
 ## Quick Start
 
+### Linux / macOS / WSL (Bash)
+
 ```bash
 # 1. Check prerequisites
 ./deploy/prerequisites.sh
@@ -39,6 +41,23 @@ cp deploy/main.bicepparam.template deploy/main.bicepparam
 
 # 4. Start learning!
 # Open exercises/00-explore-architecture.md
+```
+
+### Windows (PowerShell)
+
+```powershell
+# 1. Check prerequisites
+.\deploy\prerequisites.ps1
+
+# 2. Copy and edit parameters
+Copy-Item deploy\main.bicepparam.template deploy\main.bicepparam
+# Edit deploy\main.bicepparam with your values
+
+# 3. Deploy (takes ~30 min for infra + ~4-5 hours for nested setup)
+.\deploy\deploy.ps1 -ResourceGroup myLocalBoxLab -Location swedencentral
+
+# 4. Start learning!
+# Open exercises\00-explore-architecture.md
 ```
 
 ### Alternative: Deploy Using the Official Documentation
@@ -98,14 +117,17 @@ The LocalBox VM is an **E32s_v6** (32 vCPUs, 256 GB RAM). Estimated costs:
 > ⚠️ **Always deallocate or delete when not in use!**
 
 ```bash
-# Pause billing (keeps disks, releases compute)
+# Bash
 ./scripts/stop-environment.sh --resource-group myLocalBoxLab
-
-# Resume
 ./scripts/start-environment.sh --resource-group myLocalBoxLab
-
-# Full cleanup
 ./scripts/cleanup.sh --resource-group myLocalBoxLab
+```
+
+```powershell
+# PowerShell
+.\scripts\stop-environment.ps1 -ResourceGroup myLocalBoxLab
+.\scripts\start-environment.ps1 -ResourceGroup myLocalBoxLab
+.\scripts\cleanup.ps1 -ResourceGroup myLocalBoxLab
 ```
 
 ## Prerequisites
