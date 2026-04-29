@@ -157,7 +157,7 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 
 **Symptom**: `AzL-node.vhdx: MISSING` in diagnostics, but the storage pool and V: drive are healthy.
 
-**Cause**: The VM bootstrap was supposed to install azcopy, but the installation silently failed (network timing, package source issues). Without azcopy, the ~20 GB node VHD download never starts, and the setup script continues without error — leaving the cluster creation to fail later.
+**Cause**: The VM bootstrap was supposed to install azcopy, but the installation silently failed (network timing, package source issues). Without azcopy, the ~20 GB node VHD download never starts, and the setup script continues without error — leaving the cluster creation to fail later. Tracked upstream: [microsoft/azure_arc#3401](https://github.com/microsoft/azure_arc/issues/3401).
 
 **Fix**: The retry-setup script detects this and installs azcopy automatically before re-launching the setup:
 
@@ -247,6 +247,28 @@ Or use the retry-setup script, which will re-launch the logon script (it detects
 ```bash
 ./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
 ```
+
+#### 7. PowerShell module fails to load (corrupted Unicode character)
+
+**Symptom**: Setup fails with `"The 'New-AzLocalNodeVM' command was found in the module 'Azure.Arc.Jumpstart.LocalBox', but the module could not be loaded"`, followed by `"No MAC address returned for AzLHOST1"`.
+
+**Cause**: The `Azure.Arc.Jumpstart.LocalBox` PowerShell module v1.0.8 contains a corrupted Unicode character (garbled emoji appearing as `Γ?O`) at line 1828 of the `.psm1` file. This breaks the string parser, preventing the entire module from loading. Tracked upstream: [microsoft/azure_arc#3402](https://github.com/microsoft/azure_arc/issues/3402).
+
+**Fix**: Patch the module file inside the VM and re-run:
+
+```powershell
+# Inside the VM — fix the corrupted character
+$modulePath = "C:\Program Files\WindowsPowerShell\Modules\Azure.Arc.Jumpstart.LocalBox\1.0.8\Azure.Arc.Jumpstart.LocalBox.psm1"
+$raw = [System.IO.File]::ReadAllText($modulePath)
+$raw = $raw.Replace('Γ?O ', '')
+[System.IO.File]::WriteAllText($modulePath, $raw, [System.Text.Encoding]::UTF8)
+
+# Verify the fix
+Import-Module Azure.Arc.Jumpstart.LocalBox -Force
+Get-Command New-AzLocalNodeVM  # Should succeed
+```
+
+Then re-launch the setup with the retry script.
 
 ### Checking Logs Inside the VM
 
