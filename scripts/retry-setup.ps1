@@ -223,10 +223,13 @@ if ($recentLog) {
     Get-Content $recentLog -Tail 20 | ForEach-Object { Write-Output $_ }
 }
 
-# Check for error patterns
+# Check for error patterns (filter out stack trace noise like CategoryInfo, FullyQualifiedErrorId)
 Write-Output ""
 Write-Output "=== Errors Found ==="
-$errors = $allLogs | Where-Object { $_ -match 'Write-Error|TerminatingError|Aborting|FAILED|Exception' -and $_ -notmatch 'ErrorAction|ErrorVariable|SilentlyContinue' } | Select-Object -Last 10
+$errors = $allLogs | Where-Object {
+    ($_ -match 'Write-Error|TerminatingError|Aborting|source VHDX not found') -and
+    ($_ -notmatch 'ErrorAction|ErrorVariable|SilentlyContinue|CategoryInfo|FullyQualifiedErrorId|^\s*\+')
+} | Select-Object -Last 10
 if ($errors) {
     foreach ($e in $errors) { Write-Output $e }
 } else {
@@ -254,7 +257,7 @@ if ($errors) {
                     Write-Host $line -ForegroundColor Yellow
                 } elseif ($line -match '^===') {
                     Write-Host $line -ForegroundColor Cyan
-                } elseif ($line -match 'Error|Exception|FAILED|Aborting') {
+                } elseif ($line -match 'Write-Error|TerminatingError|FAILED|Aborting|source VHDX not found') {
                     Write-Host $line -ForegroundColor Red
                 } else {
                     Write-Host $line

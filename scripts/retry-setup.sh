@@ -225,7 +225,10 @@ if ($recentLog) {
 
 Write-Output ""
 Write-Output "=== Errors Found ==="
-$errors = $allLogs | Where-Object { $_ -match "Write-Error|TerminatingError|Aborting|FAILED|Exception" -and $_ -notmatch "ErrorAction|ErrorVariable|SilentlyContinue" } | Select-Object -Last 10
+$errors = $allLogs | Where-Object {
+    ($_ -match "Write-Error|TerminatingError|Aborting|source VHDX not found") -and
+    ($_ -notmatch "ErrorAction|ErrorVariable|SilentlyContinue|CategoryInfo|FullyQualifiedErrorId|^\s*\+")
+} | Select-Object -Last 10
 if ($errors) {
     foreach ($e in $errors) { Write-Output $e }
 } else {
