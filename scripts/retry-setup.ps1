@@ -135,19 +135,38 @@ if ($Action -eq "retry") {
 
     # Check azcopy is installed (common cause of silent download failures)
     Write-Host "  Checking azcopy installation inside the VM..."
+    $azcopyCheckFile = Join-Path ([System.IO.Path]::GetTempPath()) "localbox-azcopy-check-$(Get-Random).ps1"
+    @'
+if (Get-Command azcopy -ErrorAction SilentlyContinue) {
+    Write-Output "INSTALLED: $(azcopy --version)"
+} else {
+    Write-Output "MISSING"
+}
+'@ | Set-Content -Path $azcopyCheckFile -Encoding UTF8
+
     $azcopyCheck = az vm run-command invoke -g $ResourceGroup -n $vmName `
         --command-id RunPowerShellScript `
-        --scripts "if (Get-Command azcopy -ErrorAction SilentlyContinue) { Write-Output \"INSTALLED: `$(azcopy --version)\" } else { Write-Output 'MISSING' }" `
+        --scripts "@$azcopyCheckFile" `
         -o json 2>$null | Out-String | ConvertFrom-Json
+    Remove-Item $azcopyCheckFile -ErrorAction SilentlyContinue
     $azcopyStatus = $azcopyCheck.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
 
     if ($azcopyStatus -like "MISSING*") {
         Write-Host "  azcopy is NOT installed. Installing it now..." -ForegroundColor Yellow
-        $installScript = 'Invoke-WebRequest -Uri "https://aka.ms/downloadazcopy-v10-windows" -OutFile C:\Temp\azcopy.zip; Expand-Archive C:\Temp\azcopy.zip -DestinationPath C:\Temp\azcopy -Force; $exe = Get-ChildItem C:\Temp\azcopy -Recurse -Filter azcopy.exe | Select-Object -First 1; Copy-Item $exe.FullName C:\Windows\System32\azcopy.exe -Force; Write-Output "OK: $(azcopy --version)"'
+        $installFile = Join-Path ([System.IO.Path]::GetTempPath()) "localbox-azcopy-install-$(Get-Random).ps1"
+        @'
+Invoke-WebRequest -Uri "https://aka.ms/downloadazcopy-v10-windows" -OutFile C:\Temp\azcopy.zip
+Expand-Archive C:\Temp\azcopy.zip -DestinationPath C:\Temp\azcopy -Force
+$exe = Get-ChildItem C:\Temp\azcopy -Recurse -Filter azcopy.exe | Select-Object -First 1
+Copy-Item $exe.FullName C:\Windows\System32\azcopy.exe -Force
+Write-Output "OK: $(azcopy --version)"
+'@ | Set-Content -Path $installFile -Encoding UTF8
+
         $installResult = az vm run-command invoke -g $ResourceGroup -n $vmName `
             --command-id RunPowerShellScript `
-            --scripts $installScript `
+            --scripts "@$installFile" `
             -o json 2>$null | Out-String | ConvertFrom-Json
+        Remove-Item $installFile -ErrorAction SilentlyContinue
         $installOut = $installResult.value | Where-Object { $_.code -like "*StdOut*" } | Select-Object -ExpandProperty message
         if ($installOut -like "OK:*") {
             Write-Host "  $(([char]0x2713)) $installOut" -ForegroundColor Green
