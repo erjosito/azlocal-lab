@@ -176,9 +176,22 @@ elif [[ "$INTERACTIVE" == "true" ]]; then
 
     # Deployment options
     echo "─── Deployment Options ──────────────────────────────────────"
+    echo ""
+    echo "  Azure Bastion provides secure RDP/SSH access to VMs without"
+    echo "  exposing public IPs. Without it, you'll need an NSG rule for RDP (port 3389)."
     DEPLOY_BASTION=$(prompt_yes_no "Deploy Azure Bastion? (adds ~\$140/month)" "N")
+    echo ""
+    echo "  Auto-deploy cluster: After the VM finishes its internal setup (~4-5h),"
+    echo "  the script can automatically register and deploy the Azure Local cluster"
+    echo "  resource in Azure (the 2-node HCI cluster). If disabled, you must do this"
+    echo "  manually from the Azure Portal (useful if you want to learn that process)."
     AUTO_DEPLOY_CLUSTER=$(prompt_yes_no "Auto-deploy the Azure Local cluster resource?" "Y")
+    echo ""
+    echo "  Auto-upgrade cluster: If enabled, Azure will automatically apply solution"
+    echo "  updates (OS patches + HCI feature updates) to the cluster when available."
+    echo "  Disable this for lab environments to avoid unexpected reboots during exercises."
     AUTO_UPGRADE_CLUSTER=$(prompt_yes_no "Auto-upgrade the cluster resource?" "N")
+    echo ""
     WORKSPACE_NAME=$(prompt_with_default "Log Analytics workspace name" "LocalBox-Workspace")
     echo ""
 
@@ -191,7 +204,10 @@ elif [[ "$INTERACTIVE" == "true" ]]; then
     echo ""
 
     # Tags
-    GOVERN_TAGS=$(prompt_yes_no "Enable resource tag governance? (Microsoft-internal tenants only)" "N")
+    echo "  Tag governance enforces mandatory resource tags (e.g., CostCenter, Owner)"
+    echo "  via Azure Policy. This is only needed for Microsoft-internal subscriptions"
+    echo "  that require specific tag compliance. For personal/external tenants, say No."
+    GOVERN_TAGS=$(prompt_yes_no "Enable resource tag governance?" "N")
     echo ""
 
     # ── Generate parameters file ─────────────────────────────────────

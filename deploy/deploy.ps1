@@ -147,9 +147,22 @@ if ($needsGeneration -and -not $NoInteractive) {
 
     # Deployment options
     Write-Host "--- Deployment Options ---" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Azure Bastion provides secure RDP/SSH access to VMs without"
+    Write-Host "  exposing public IPs. Without it, you'll need an NSG rule for RDP (port 3389)."
     $deployBastion = Prompt-YesNo "Deploy Azure Bastion? (adds ~`$140/month)" "N"
+    Write-Host ""
+    Write-Host "  Auto-deploy cluster: After the VM finishes its internal setup (~4-5h),"
+    Write-Host "  the script can automatically register and deploy the Azure Local cluster"
+    Write-Host "  resource in Azure (the 2-node HCI cluster). If disabled, you must do this"
+    Write-Host "  manually from the Azure Portal (useful if you want to learn that process)."
     $autoDeployCluster = Prompt-YesNo "Auto-deploy the Azure Local cluster resource?" "Y"
+    Write-Host ""
+    Write-Host "  Auto-upgrade cluster: If enabled, Azure will automatically apply solution"
+    Write-Host "  updates (OS patches + HCI feature updates) to the cluster when available."
+    Write-Host "  Disable this for lab environments to avoid unexpected reboots during exercises."
     $autoUpgradeCluster = Prompt-YesNo "Auto-upgrade the cluster resource?" "N"
+    Write-Host ""
     $workspaceName = Prompt-WithDefault "Log Analytics workspace name" "LocalBox-Workspace"
     Write-Host ""
 
@@ -162,7 +175,10 @@ if ($needsGeneration -and -not $NoInteractive) {
     Write-Host ""
 
     # Tags
-    $governTags = Prompt-YesNo "Enable resource tag governance? (Microsoft-internal tenants only)" "N"
+    Write-Host "  Tag governance enforces mandatory resource tags (e.g., CostCenter, Owner)"
+    Write-Host "  via Azure Policy. This is only needed for Microsoft-internal subscriptions"
+    Write-Host "  that require specific tag compliance. For personal/external tenants, say No."
+    $governTags = Prompt-YesNo "Enable resource tag governance?" "N"
     Write-Host ""
 
     # ── Generate parameters file ─────────────────────────────────────
