@@ -270,6 +270,22 @@ Get-Command New-AzLocalNodeVM  # Should succeed
 
 Then re-launch the setup with the retry script.
 
+#### 8. ARM template generation fails (`ConvertTo-Json -AsArray`)
+
+**Symptom**: The progress report shows Steps 1-9 complete but Step 10 (cluster validation) never starts. The cluster log ends with `A parameter cannot be found that matches parameter name 'AsArray'`.
+
+**Cause**: The `Generate-ARM-Template.ps1` script uses `ConvertTo-Json -AsArray`, which is a PowerShell 7+ parameter. The LocalBox VM runs Windows PowerShell 5.1. Tracked upstream: [microsoft/azure_arc#3403](https://github.com/microsoft/azure_arc/issues/3403).
+
+**Fix**: Patch the script inside the VM:
+
+```powershell
+# Inside the VM
+$path = "C:\LocalBox\Generate-ARM-Template.ps1"
+(Get-Content $path -Raw).Replace('ConvertTo-Json -AsArray', 'ConvertTo-Json') | Set-Content $path -Encoding UTF8
+```
+
+Then re-launch the setup with the retry script.
+
 ### Checking Logs Inside the VM
 
 If you have RDP or Bastion access, the key log files inside the VM are:
