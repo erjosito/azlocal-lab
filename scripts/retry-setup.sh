@@ -19,15 +19,16 @@ VM_NAME="LocalBox-Client"
 ACTION="status"
 
 usage() {
-    echo "Usage: $0 --resource-group <name> [--action status|retry]"
+    echo "Usage: $0 --resource-group <name> [--action status|retry|progress]"
     echo ""
     echo "Options:"
     echo "  --resource-group, -g   Resource group name (required)"
-    echo "  --action, -a           Action: 'status' (default) or 'retry'"
+    echo "  --action, -a           Action: 'status' (default), 'retry', or 'progress'"
     echo ""
     echo "Actions:"
-    echo "  status   Check the current state of the internal setup"
-    echo "  retry    Re-launch the logon script to retry the setup"
+    echo "  status     Check the current state of the internal setup"
+    echo "  retry      Re-launch the logon script to retry the setup"
+    echo "  progress   Show setup milestones and recent log activity"
     exit 1
 }
 
@@ -133,6 +134,114 @@ RESULT=$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" \
 
 echo "$RESULT"
 echo ""
+
+# ── Progress if requested ─────────────────────────────────────────
+if [[ "$ACTION" == "progress" ]]; then
+    echo "─── Setup Progress ────────────────────────────────────────────"
+    echo ""
+    echo "Reading log files inside the VM..."
+    echo ""
+
+    PROGRESS_SCRIPT='
+$milestones = @(
+    @{ Pattern = "Installing Hyper-V";              Label = "Phase 1: Hyper-V installation" }
+    @{ Pattern = "Configuring Windows Defender";    Label = "Phase 1: Defender exclusions" }
+    @{ Pattern = "Configuring storage";             Label = "Phase 2: Storage pool setup" }
+    @{ Pattern = "Step 1/11.*Downloading";          Label = "Phase 2: Step  1/11 - Downloading VHDs (~20 GB)" }
+    @{ Pattern = "Step 2/11.*Preparing";            Label = "Phase 2: Step  2/11 - Preparing virtualization host" }
+    @{ Pattern = "Step 3/11.*Management VM";        Label = "Phase 2: Step  3/11 - Creating management VM (AzLMGMT)" }
+    @{ Pattern = "Step 4/11.*node VMs";             Label = "Phase 2: Step  4/11 - Creating Azure Local node VMs" }
+    @{ Pattern = "Step 5/11.*Starting VMs";         Label = "Phase 2: Step  5/11 - Starting VMs" }
+    @{ Pattern = "Step 6/11.*networking";           Label = "Phase 2: Step  6/11 - Host networking and storage" }
+    @{ Pattern = "Step 7/11.*router";               Label = "Phase 2: Step  7/11 - Building router VM" }
+    @{ Pattern = "Step 8/11.*Domain Controller";    Label = "Phase 2: Step  8/11 - Building Domain Controller VM" }
+    @{ Pattern = "Step 9/11.*cloud deployment";     Label = "Phase 2: Step  9/11 - Preparing cluster cloud deployment" }
+    @{ Pattern = "Step 10/11.*Validate";            Label = "Phase 2: Step 10/11 - Validating cluster deployment" }
+    @{ Pattern = "Step 11/11.*cluster deployment";  Label = "Phase 2: Step 11/11 - Running cluster deployment" }
+    @{ Pattern = "Upgrading Local cluster";         Label = "Phase 2: Upgrading cluster" }
+    @{ Pattern = "Successfully deployed";           Label = "COMPLETE: Infrastructure deployed" }
+    @{ Pattern = "Running tests to verify";         Label = "Phase 3: Running verification tests" }
+    @{ Pattern = "Creating deployment logs bundle"; Label = "Phase 3: Creating logs bundle" }
+    @{ Pattern = "Removing Logon Task";             Label = "Phase 3: Cleanup - Removing logon task" }
+    @{ Pattern = "Changing wallpaper";              Label = "Phase 3: Finalizing desktop" }
+)
+
+$allLogs = @()
+$logFiles = @(
+    "C:\LocalBox\Logs\Bootstrap.log",
+    "C:\LocalBox\Logs\LocalBoxLogonScript.log",
+    "C:\LocalBox\Logs\New-LocalBoxCluster.log"
+)
+foreach ($lf in $logFiles) {
+    if (Test-Path $lf) { $allLogs += Get-Content $lf }
+}
+
+$lastReached = -1
+$results = @()
+for ($i = 0; $i -lt $milestones.Count; $i++) {
+    $m = $milestones[$i]
+    $found = $allLogs | Where-Object { $_ -match $m.Pattern } | Select-Object -Last 1
+    if ($found) {
+        $results += "[X] $($m.Label)"
+        $lastReached = $i
+    } else {
+        $results += "[ ] $($m.Label)"
+    }
+}
+
+Write-Output "=== Milestone Checklist ==="
+foreach ($r in $results) { Write-Output $r }
+
+Write-Output ""
+if ($lastReached -ge 0 -and $lastReached -lt ($milestones.Count - 1)) {
+    $next = $milestones[$lastReached + 1]
+    Write-Output "CURRENT: Likely working on ''$($next.Label)'' (or failed before reaching it)"
+} elseif ($lastReached -eq ($milestones.Count - 1)) {
+    Write-Output "STATUS: All milestones reached - setup appears complete!"
+} else {
+    Write-Output "STATUS: No milestones reached yet. Setup may not have started."
+}
+
+Write-Output ""
+Write-Output "=== Recent Log Activity ==="
+$recentLog = $null
+$recentLogName = $null
+$latestWrite = [DateTime]::MinValue
+foreach ($lf in $logFiles) {
+    if (Test-Path $lf) {
+        $item = Get-Item $lf
+        if ($item.LastWriteTime -gt $latestWrite) {
+            $latestWrite = $item.LastWriteTime
+            $recentLog = $lf
+            $recentLogName = $item.Name
+        }
+    }
+}
+if ($recentLog) {
+    Write-Output "Most recent: $recentLogName (updated $latestWrite)"
+    Write-Output "--- Last 20 lines ---"
+    Get-Content $recentLog -Tail 20 | ForEach-Object { Write-Output $_ }
+}
+
+Write-Output ""
+Write-Output "=== Errors Found ==="
+$errors = $allLogs | Where-Object { $_ -match "Write-Error|TerminatingError|Aborting|FAILED|Exception" -and $_ -notmatch "ErrorAction|ErrorVariable|SilentlyContinue" } | Select-Object -Last 10
+if ($errors) {
+    foreach ($e in $errors) { Write-Output $e }
+} else {
+    Write-Output "(none)"
+}
+'
+
+    PROGRESS_RESULT=$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" \
+        --command-id RunPowerShellScript \
+        --scripts "$PROGRESS_SCRIPT" \
+        --query "value[0].message" -o tsv 2>/dev/null)
+
+    echo "$PROGRESS_RESULT"
+    echo ""
+    exit 0
+fi
 
 # ── Retry if requested ────────────────────────────────────────────
 if [[ "$ACTION" == "retry" ]]; then
