@@ -167,7 +167,29 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 .\scripts\retry-setup.ps1 -ResourceGroup myLocalBoxLab -Action retry
 ```
 
-#### 2. Storage pool timing issue after Hyper-V reboot
+#### 2. VHD download fails — storage account disabled (upstream bug)
+
+**Symptom**: `AzL-node.vhdx: MISSING` in diagnostics even though azcopy is installed. The progress report (`-Action progress`) shows Step 1/11 was reached but Step 3/11 was not.
+
+**Cause**: The upstream storage account `azlocalvhds.blob.core.windows.net` used by the Jumpstart scripts returns **403 AccountIsDisabled**. This is an upstream issue tracked in [microsoft/azure_arc#3400](https://github.com/microsoft/azure_arc/issues/3400). The same VHD files are available on the older storage account `jumpstartprodsg.blob.core.windows.net`.
+
+**Fix**: Patch the download URLs inside the VM and re-run the setup. Connect via RDP or Bastion and run:
+
+```powershell
+# Inside the VM — patch the cluster script
+$script = Get-Content C:\LocalBox\New-LocalBoxCluster.ps1 -Raw
+$script = $script.Replace(
+    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2601.vhdx',
+    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2601.vhdx')
+$script = $script.Replace(
+    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2601.sha256',
+    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2601.sha256')
+Set-Content C:\LocalBox\New-LocalBoxCluster.ps1 -Value $script -Encoding UTF8
+```
+
+Or remotely via `az vm run-command` (save the above as a `.ps1` file and run it with `--scripts @file.ps1`). Then re-launch the setup with the retry script.
+
+#### 3. Storage pool timing issue after Hyper-V reboot
 
 **Symptom**: `StoragePool: NOT FOUND` or `VDrive: NOT FOUND` in diagnostics.
 
@@ -179,7 +201,7 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 ./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
 ```
 
-#### 3. PowerShell window closed / setup script stopped
+#### 4. PowerShell window closed / setup script stopped
 
 **Symptom**: You RDP into the VM and don't see the setup PowerShell window. The diagnostics show few or no Hyper-V VMs, and `PowerShell processes: 1 running` (only your session).
 
@@ -191,7 +213,7 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 ./scripts/retry-setup.sh --resource-group myLocalBoxLab --action retry
 ```
 
-#### 4. NSG rules blocking RDP (port 3389)
+#### 5. NSG rules blocking RDP (port 3389)
 
 **Symptom**: You can't RDP into the LocalBox-Client VM. The VM is running and has a public IP, but the connection times out.
 
@@ -205,7 +227,7 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 .\scripts\add-bastion.ps1 -ResourceGroup myLocalBoxLab
 ```
 
-#### 5. VHD download incomplete or corrupted
+#### 6. VHD download incomplete or corrupted
 
 **Symptom**: `AzL-node.vhdx` exists but is much smaller than expected (should be ~20 GB), or Hyper-V VMs fail to start.
 
