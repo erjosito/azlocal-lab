@@ -41,6 +41,16 @@ cp deploy/main.bicepparam.template deploy/main.bicepparam
 # Open exercises/00-explore-architecture.md
 ```
 
+### Alternative: Deploy Using the Official Documentation
+
+If you encounter issues with the deployment scripts above, you can follow the original Azure Jumpstart LocalBox documentation directly:
+
+1. **Getting Started** — [jumpstart.azure.com/azure_jumpstart_localbox/getting_started](https://jumpstart.azure.com/azure_jumpstart_localbox/getting_started)
+2. **Bicep Deployment Guide** — [Deploy LocalBox with Azure Bicep](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az)
+3. **Connect to LocalBox** — [Post-deployment steps](https://jumpstart.azure.com/azure_jumpstart_localbox/cloud_deployment)
+
+The official guide uses the same Bicep templates from the [microsoft/azure_arc](https://github.com/microsoft/azure_arc/tree/main/azure_jumpstart_localbox) GitHub repository. Once your LocalBox environment is operational, you can proceed with the exercises in this repo regardless of how you deployed.
+
 ## Repository Structure
 
 ```
