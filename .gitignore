@@ -1,0 +1,16 @@
+# Cloned Jumpstart repo
+azure_arc/
+
+# User-specific parameter files (contain secrets)
+deploy/main.bicepparam
+*.parameters.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~

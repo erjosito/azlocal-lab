@@ -1,0 +1,34 @@
+using 'main.bicep'
+
+// ─── Required parameters ─────────────────────────────────────────
+// Get these values by running: ./deploy/prerequisites.sh
+
+param tenantId = '<your-tenant-id>'
+param spnProviderId = '<your-Microsoft.AzureStackHCI-resource-provider-object-id>'
+
+// ─── Credentials ─────────────────────────────────────────────────
+// Avoid the $ symbol in passwords — it can break the logon scripts.
+param windowsAdminUsername = 'arcdemo'
+param windowsAdminPassword = '<your-secure-password>'
+
+// ─── Deployment options ──────────────────────────────────────────
+param logAnalyticsWorkspaceName = 'LocalBox-Workspace'
+param deployBastion = false
+param autoDeployClusterResource = true
+param autoUpgradeClusterResource = false
+
+// ─── VM configuration ────────────────────────────────────────────
+// Standard_E32s_v6 (default) or Standard_E32s_v5
+param vmSize = 'Standard_E32s_v6'
+
+// Enable spot pricing for significant cost savings (risk of eviction)
+param enableAzureSpotPricing = false
+
+// ─── Region for Azure Local instance registration ────────────────
+// Must be one of: australiaeast, southcentralus, eastus, westeurope,
+//                 southeastasia, canadacentral, japaneast, centralindia
+param azureLocalInstanceLocation = 'westeurope'
+
+// ─── Tags ────────────────────────────────────────────────────────
+// Set governResourceTags to false if deploying outside Microsoft-internal tenants
+param governResourceTags = false
