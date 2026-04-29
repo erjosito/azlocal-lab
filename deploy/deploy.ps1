@@ -307,22 +307,37 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Infrastructure Deployment Complete!" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ""
+
+# Retrieve VM public IP
+$vmIp = az vm show -g $ResourceGroup -n LocalBox-Client -d --query publicIps -o tsv 2>$null
+$adminUserDisplay = if ((Test-Path $ParamsFile) -and ((Get-Content $ParamsFile -Raw) -match "windowsAdminUsername = '([^']+)'")) {
+    $Matches[1]
+} else { "arcdemo" }
+
 Write-Host "IMPORTANT: This was Phase 1 only. The next steps are:"
 Write-Host ""
-Write-Host "  1. Connect to the LocalBox-Client VM via RDP or Bastion"
-Write-Host "     (You may need to add an NSG rule for port 3389 first)"
+if ($vmIp) {
+    Write-Host "  LocalBox-Client public IP: $vmIp" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Connect via RDP:"
+    Write-Host "    mstsc /v:$vmIp /u:$adminUserDisplay" -ForegroundColor White
+    Write-Host ""
+} else {
+    Write-Host "  Could not retrieve VM public IP. Check with:"
+    Write-Host "    az vm show -g $ResourceGroup -n LocalBox-Client -d --query publicIps -o tsv"
+    Write-Host ""
+}
+Write-Host "  NOTE: If your subscription has policies that remove port 3389 NSG rules,"
+Write-Host "  consider using Azure Bastion instead (re-deploy with Bastion enabled)."
 Write-Host ""
-Write-Host "  2. A PowerShell script will run automatically inside the VM."
+Write-Host "  1. A PowerShell script will run automatically inside the VM."
 Write-Host "     This takes approximately 4-5 HOURS to complete."
 Write-Host "     Do NOT close the PowerShell window."
 Write-Host ""
-Write-Host "  3. Once the script finishes, verify in Azure Portal that"
+Write-Host "  2. Once the script finishes, verify in Azure Portal that"
 Write-Host "     AzLHOST1 and AzLHOST2 appear as Arc-enabled servers."
 Write-Host ""
-Write-Host "  4. Start the exercises: exercises\00-explore-architecture.md"
-Write-Host ""
-Write-Host "To check your VM's public IP:"
-Write-Host "  az vm show -g $ResourceGroup -n LocalBox-Client -d --query publicIps -o tsv"
+Write-Host "  3. Start the exercises: exercises\00-explore-architecture.md"
 Write-Host ""
 Write-Host "To monitor costs:"
 Write-Host "  .\scripts\estimate-cost.ps1"
