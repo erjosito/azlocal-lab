@@ -88,6 +88,10 @@ exercises/                       # Progressive learning path
   04-monitoring-observability.md # Azure Monitor and Insights
   05-security-and-governance.md  # Defender, Policy, RBAC
   06-challenge-operations.md     # Open challenge: hybrid operations
+  07-sql-managed-instance.md     # Arc-enabled SQL MI on Azure Local
+  08-sre-agent.md                # Azure SRE Agent for hybrid incidents
+  sre-agent-knowledge/
+    azure-local-operations.md    # Knowledge base for Exercise 8
 ```
 
 ## Exercises Overview
@@ -101,6 +105,8 @@ exercises/                       # Progressive learning path
 | 4 | [Monitoring & Observability](exercises/04-monitoring-observability.md) | Semi-guided | 45-60 min |
 | 5 | [Security & Governance](exercises/05-security-and-governance.md) | Semi-guided | 45-60 min |
 | 6 | [Challenge: Hybrid Operations](exercises/06-challenge-operations.md) | Open Challenge | 60-90 min |
+| 7 | [SQL Managed Instance on Azure Local](exercises/07-sql-managed-instance.md) | Challenge + Guide | 60-90 min |
+| 8 | [Azure SRE Agent for Azure Local Operations](exercises/08-sre-agent.md) | Challenge + Guide | 60-90 min |
 
 ## Cost Management
 

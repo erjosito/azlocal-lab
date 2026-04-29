@@ -233,7 +233,7 @@ Resources:
 
 ## Final Reflection
 
-You've now explored the core capabilities of Azure Local through hands-on exercises. Take a step back and think about:
+You've now explored the core operational capabilities of Azure Local through hands-on exercises. Take a step back and think about:
 
 1. **When would you recommend Azure Local over pure cloud?** What workloads and requirements make it the right choice?
 
@@ -247,11 +247,15 @@ You've now explored the core capabilities of Azure Local through hands-on exerci
    - Azure Arc-enabled data services (SQL Managed Instance on-prem)
    - GitOps for hybrid Kubernetes management
 
+## Next Exercise
+
+➡️ [Exercise 7: SQL Managed Instance on Azure Local](./07-sql-managed-instance.md)
+
 ---
 
 ## Cleanup
 
-When you're done with all exercises:
+When you're done with the entire lab:
 
 ```bash
 ./scripts/cleanup.sh --resource-group <your-resource-group>
