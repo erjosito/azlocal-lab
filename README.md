@@ -80,8 +80,12 @@ scripts/                         # Cost and lifecycle management
   stop-environment.sh            # Deallocate VMs to pause billing
   start-environment.sh           # Restart deallocated VMs
   cleanup.sh                     # Destroy all resources
-  deploy-arc-gateway.sh          # Create/remove Arc Gateway for Arc agents
-  deploy-arc-gateway.ps1         # PowerShell equivalent
+  deploy-firewall.sh/.ps1        # Azure Firewall + UDR for enterprise networking
+  monitor-firewall-logs.sh/.ps1  # Analyze firewall logs and discover rules
+  deploy-arc-gateway.sh/.ps1     # Create/remove Arc Gateway for Arc agents
+
+docs/                            # Architecture and operational docs
+  firewall-rules.md              # Firewall rules inventory and architecture
 
 exercises/                       # Progressive learning path
   00-explore-architecture.md     # Understand the nested virtualization stack
