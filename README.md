@@ -347,9 +347,69 @@ Set-AzLocalDeployPrereqs -LocalBoxConfig $LocalBoxConfig -localCred $localCred -
 # 6. Re-run validation (step 10) and deploy (step 11)
 ```
 
+**Status**: Confirmed fixed — `AzLocal2506.vhdx` (build 26100.4349) passes all 16 validation steps (including OS version). After swapping the VHD, you may also need to fix NTP (see Bug #10 below) and storage account shared key access (see Bug #11 below).
+
 **What does NOT fix the issue**:
 - Windows Update on the 2601 image (updates to 26100.32690, still rejected)
 - The evaluation center download is not publicly accessible
+
+#### 10. Cluster validation fails — NTP time sync error
+
+**Symptom**: Validation Step 7 (Software) fails with `"NTP Response not received on 'AZLHOST1' from 'VM IC Time Synchronization Provider': 'No such host is known. (0x80072AF9)'"`.
+
+**Cause**: The cluster validator tests NTP by running `w32tm /stripchart /computer:"VM IC Time Synchronization Provider"`, which tries to resolve the provider name as a network hostname — it can't. In nested Hyper-V (VM-inside-VM), the VM Integration Components time synchronization provider is registered but the validator's test method fails because it treats the provider name as a DNS name.
+
+**Fix**: Disable the VM IC time provider on both nodes and configure a real NTP server:
+
+```powershell
+# Inside LocalBox-Client, run on both nodes:
+$pw = ConvertTo-SecureString "Microsoft123!" -AsPlainText -Force
+$cred = New-Object PSCredential("Administrator", $pw)
+
+foreach ($node in @("AzLHOST1","AzLHOST2")) {
+    Invoke-Command -VMName $node -Credential $cred -ScriptBlock {
+        # Disable VM IC Time Provider (causes validation failure in nested Hyper-V)
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\VMICTimeProvider" -Name "Enabled" -Value 0
+        # Configure NTP to use time.windows.com
+        w32tm /config /manualpeerlist:"time.windows.com,0x8" /syncfromflags:manual /reliable:yes /update
+        Restart-Service w32time -Force
+        Start-Sleep 5
+        w32tm /resync /force
+    }
+}
+```
+
+Verify with `w32tm /stripchart /computer:time.windows.com /samples:1` — should show a valid time offset.
+
+#### 11. Cluster validation fails — storage account shared key access disabled
+
+**Symptom**: Validation Step 10 (Cluster Witness) fails with `"Key based authentication is not permitted on this storage account"` for the witness storage account.
+
+**Cause**: Enterprise subscriptions often have Azure Policy (e.g., MCAPSGov "Deploy and Modify Policies") that automatically disables shared key access (`allowSharedKeyAccess=false`) on all storage accounts. The cluster witness requires key-based access to the storage account.
+
+**Fix**: Create a policy exemption for the resource group and re-enable shared key access:
+
+```bash
+# Find the policy assignment that blocks shared key access
+# (Look for "Deploy and Modify" policies at management group level)
+az policy assignment list --scope "/providers/Microsoft.Management/managementGroups/<TENANT_ID>" \
+  --query "[?contains(displayName,'Deploy')].{name:name, display:displayName}" -o table
+
+# Create exemption (adjust assignment ID and scope)
+az policy exemption create \
+  --name "localbox-witness-shared-key" \
+  --display-name "LocalBox witness storage requires shared key for cluster validation" \
+  --policy-assignment "/providers/Microsoft.Management/managementGroups/<TENANT_ID>/providers/Microsoft.Authorization/policyAssignments/<ASSIGNMENT_NAME>" \
+  --exemption-category "Waiver" \
+  --scope "/subscriptions/<SUB_ID>/resourceGroups/<RG_NAME>" \
+  --policy-definition-reference-ids "StorageAccountDisableLocalAuth"
+
+# Now enable shared key access
+az storage account update -n <WITNESS_ACCOUNT_NAME> -g <RG_NAME> --allow-shared-key-access true
+
+# Also ensure public network access is enabled
+az storage account update -n <WITNESS_ACCOUNT_NAME> -g <RG_NAME> --public-network-access Enabled
+```
 
 ### Checking Logs Inside the VM
 
