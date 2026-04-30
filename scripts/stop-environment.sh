@@ -52,6 +52,15 @@ if [[ "$POWER_STATE" == "VM deallocated" ]]; then
     exit 0
 fi
 
+# Deallocate Azure Firewall first if present (saves ~$30/day)
+FW_NAME=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
+if [[ -n "$FW_NAME" ]]; then
+    echo ""
+    echo "Deallocating Azure Firewall '$FW_NAME' (saves ~\$30/day)..."
+    az network firewall update -g "$RESOURCE_GROUP" -n "$FW_NAME" --set "ipConfigurations=[]" 2>/dev/null
+    echo "  Firewall deallocated."
+fi
+
 # Deallocate
 echo ""
 echo "Deallocating VM (this may take a few minutes)..."

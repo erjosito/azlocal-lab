@@ -10,6 +10,7 @@ This repository provides everything you need to deploy an emulated [Azure Local]
 - AKS (Azure Kubernetes Service) on Azure Local
 - Monitoring, security, and governance for hybrid infrastructure
 - Azure Policy for Arc-enabled resources
+- Azure Arc Gateway for reducing Arc network footprint
 
 ## Architecture Overview
 
@@ -79,6 +80,8 @@ scripts/                         # Cost and lifecycle management
   stop-environment.sh            # Deallocate VMs to pause billing
   start-environment.sh           # Restart deallocated VMs
   cleanup.sh                     # Destroy all resources
+  deploy-arc-gateway.sh          # Create/remove Arc Gateway for Arc agents
+  deploy-arc-gateway.ps1         # PowerShell equivalent
 
 exercises/                       # Progressive learning path
   00-explore-architecture.md     # Understand the nested virtualization stack
@@ -90,6 +93,7 @@ exercises/                       # Progressive learning path
   06-challenge-operations.md     # Open challenge: hybrid operations
   07-sql-managed-instance.md     # Arc-enabled SQL MI on Azure Local
   08-sre-agent.md                # Azure SRE Agent for hybrid incidents
+  09-arc-gateway.md              # Arc Gateway and firewall log comparison
   sre-agent-knowledge/
     azure-local-operations.md    # Knowledge base for Exercise 8
 ```
@@ -107,6 +111,7 @@ exercises/                       # Progressive learning path
 | 6 | [Challenge: Hybrid Operations](exercises/06-challenge-operations.md) | Open Challenge | 60-90 min |
 | 7 | [SQL Managed Instance on Azure Local](exercises/07-sql-managed-instance.md) | Challenge + Guide | 60-90 min |
 | 8 | [Azure SRE Agent for Azure Local Operations](exercises/08-sre-agent.md) | Challenge + Guide | 60-90 min |
+| 9 | [Arc Gateway and Network Security](exercises/09-arc-gateway.md) | Guided + Analysis | 45-60 min |
 
 ## Cost Management
 

@@ -57,10 +57,38 @@ else
     echo "VM started successfully."
 fi
 
-# Wait for IP assignment
+# Wait for VM to be ready, then ensure nested VMs are running
 echo ""
 echo "Retrieving connection details..."
 sleep 5
+
+# Start nested VMs if they are off (they may not auto-start after host deallocation)
+echo ""
+echo "Ensuring nested Hyper-V VMs are running..."
+NESTED_RESULT=$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" \
+    --command-id RunPowerShellScript \
+    --scripts "Get-VM | Where-Object { \$_.State -ne 'Running' } | ForEach-Object { Start-VM -Name \$_.Name; Write-Output \"Started: \$(\$_.Name)\" }; Get-VM | Select-Object Name, State | Out-String" \
+    --query "value[0].message" -o tsv 2>/dev/null || echo "")
+if [[ -n "$NESTED_RESULT" ]]; then
+    echo "$NESTED_RESULT"
+fi
+
+# Start Azure Firewall if present in the resource group
+FW_NAME=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
+if [[ -n "$FW_NAME" ]]; then
+    echo ""
+    echo "Starting Azure Firewall '$FW_NAME'..."
+    FW_PIP_ID=$(az network firewall show -g "$RESOURCE_GROUP" -n "$FW_NAME" --query "ipConfigurations[0].publicIpAddress.id" -o tsv 2>/dev/null || echo "")
+    FW_SUBNET_ID=$(az network firewall show -g "$RESOURCE_GROUP" -n "$FW_NAME" --query "ipConfigurations[0].subnet.id" -o tsv 2>/dev/null || echo "")
+    if [[ -n "$FW_PIP_ID" && -n "$FW_SUBNET_ID" ]]; then
+        az network firewall update -g "$RESOURCE_GROUP" -n "$FW_NAME" \
+            --set "ipConfigurations[0].publicIpAddress.id=$FW_PIP_ID" \
+            --set "ipConfigurations[0].subnet.id=$FW_SUBNET_ID" 2>/dev/null
+        echo "Azure Firewall started."
+    else
+        echo "  (Firewall configuration not found, skipping)"
+    fi
+fi
 
 PUBLIC_IP=$(az vm show -g "$RESOURCE_GROUP" -n "$VM_NAME" -d --query "publicIps" -o tsv 2>/dev/null || echo "N/A")
 PRIVATE_IP=$(az vm show -g "$RESOURCE_GROUP" -n "$VM_NAME" -d --query "privateIps" -o tsv 2>/dev/null || echo "N/A")

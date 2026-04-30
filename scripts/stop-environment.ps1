@@ -38,6 +38,15 @@ if ($powerState -eq "VM deallocated") {
     exit 0
 }
 
+# Deallocate Azure Firewall first if present (saves ~$30/day)
+$fwName = az network firewall list -g $ResourceGroup --query "[0].name" -o tsv 2>$null
+if ($fwName) {
+    Write-Host ""
+    Write-Host "Deallocating Azure Firewall '$fwName' (saves ~`$30/day)..."
+    az network firewall update -g $ResourceGroup -n $fwName --set "ipConfigurations=[]" 2>$null
+    Write-Host "  Firewall deallocated." -ForegroundColor Green
+}
+
 # Deallocate
 Write-Host ""
 Write-Host "Deallocating VM (this may take a few minutes)..."
