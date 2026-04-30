@@ -301,41 +301,28 @@ $path = "C:\LocalBox\Generate-ARM-Template.ps1"
 
 Then re-launch the setup with the retry script.
 
-#### 9. Cluster validation fails — unsupported OS version (upstream bug)
+#### 9. Cluster validation fails — unsupported OS version (BLOCKING upstream bug)
 
 **Symptom**: Step 10 (cluster validation) fails with `"Unsupported Azure Stack HCI OS Version. The version of Azure Stack HCI OS currently installed on your system is not supported for new deployments."`.
 
-**Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230**, which Azure no longer accepts for new cluster deployments. Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
+**Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230** (UBR 32230), which is from a **preview/insider release track**. Azure's production validation service only accepts GA builds (UBR in the 3000-5000 range, e.g., 26100.3775, 26100.4061, 26100.4349). Running Windows Update on the preview image brings it to 26100.32690 — still a preview build that Azure will never accept.
 
-**Fix**: Install Windows updates on the nested VMs to bring the OS to a supported version, then retry cluster validation:
+Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
 
+**Status**: ⛔ **No user-side workaround exists.** The fix requires the Jumpstart team to rebuild the VHD image from a GA Azure Stack HCI ISO. Windows Update cannot convert a preview build to GA.
+
+**What we tried (does NOT fix the issue)**:
 ```powershell
-# Inside the LocalBox-Client VM — run on each nested node
+# This updates to 26100.32690 but that's still a preview build — validation still fails
 $cred = New-Object PSCredential("Administrator", (ConvertTo-SecureString "Microsoft123!" -AsPlainText -Force))
-
-# AzLHOST1
 Invoke-Command -VMName "AzLHOST1" -Credential $cred -ScriptBlock {
     Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
     Install-Module PSWindowsUpdate -Force
     Get-WindowsUpdate -Install -AcceptAll -AutoReboot
 }
-
-# AzLHOST2
-Invoke-Command -VMName "AzLHOST2" -Credential $cred -ScriptBlock {
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-    Install-Module PSWindowsUpdate -Force
-    Get-WindowsUpdate -Install -AcceptAll -AutoReboot
-}
 ```
 
-After the nodes reboot and come back up, retry the cluster validation:
-
-```powershell
-New-AzResourceGroupDeployment -Name 'localcluster-validate' `
-    -ResourceGroupName $env:resourceGroup `
-    -TemplateFile "C:\LocalBox\azlocal.json" `
-    -TemplateParameterFile "C:\LocalBox\azlocal.parameters.json"
-```
+**Potential workaround (untested)**: Replace the VHD with a GA image downloaded from the [Azure Stack HCI evaluation page](https://www.microsoft.com/en-us/evalcenter/evaluate-azure-stack-hci). This would require significant re-work of the node configuration (AD join, Arc onboarding, networking) that the Jumpstart scripts normally handle during VHD creation.
 
 ### Checking Logs Inside the VM
 
