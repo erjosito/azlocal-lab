@@ -301,28 +301,55 @@ $path = "C:\LocalBox\Generate-ARM-Template.ps1"
 
 Then re-launch the setup with the retry script.
 
-#### 9. Cluster validation fails — unsupported OS version (BLOCKING upstream bug)
+#### 9. Cluster validation fails — unsupported OS version (upstream bug, workaround available)
 
 **Symptom**: Step 10 (cluster validation) fails with `"Unsupported Azure Stack HCI OS Version. The version of Azure Stack HCI OS currently installed on your system is not supported for new deployments."`.
 
-**Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230** (UBR 32230), which is from a **preview/insider release track**. Azure's production validation service only accepts GA builds (UBR in the 3000-5000 range, e.g., 26100.3775, 26100.4061, 26100.4349). Running Windows Update on the preview image brings it to 26100.32690 — still a preview build that Azure will never accept.
+**Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230**. This build is Microsoft's own latest distributed image (recipe 12.2604 from the `Microsoft.AzureStackHCI/locations/osImages` API), yet the validation service rejects it — an internal inconsistency at Microsoft where their deployment pipeline ships a build that their validation pipeline rejects.
 
 Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
 
-**Status**: ⛔ **No user-side workaround exists.** The fix requires the Jumpstart team to rebuild the VHD image from a GA Azure Stack HCI ISO. Windows Update cannot convert a preview build to GA.
+**Workaround**: Replace `AzLocal2601.vhdx` with an older VHD from the same Jumpstart storage that uses build **26100.1742** (GA release track):
 
-**What we tried (does NOT fix the issue)**:
 ```powershell
-# This updates to 26100.32690 but that's still a preview build — validation still fails
-$cred = New-Object PSCredential("Administrator", (ConvertTo-SecureString "Microsoft123!" -AsPlainText -Force))
-Invoke-Command -VMName "AzLHOST1" -Credential $cred -ScriptBlock {
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-    Install-Module PSWindowsUpdate -Force
-    Get-WindowsUpdate -Install -AcceptAll -AutoReboot
+# 1. Stop and remove the node VMs
+Stop-VM -Name AzLHOST1,AzLHOST2 -Force
+Remove-VM -Name AzLHOST1,AzLHOST2 -Force
+Remove-Item V:\VMs\AzLHOST1*.vhdx, V:\VMs\AzLHOST2*.vhdx -Force
+Remove-Item V:\VMs\AzL-node.vhdx -Force
+
+# 2. Download the older (working) VHD — AzLocal2506 uses build 26100.1742
+azcopy cp "https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2506.vhdx" "V:\VMs\AzL-node.vhdx" --check-length=false
+
+# 3. Recreate node VMs using the Jumpstart module
+Import-Module Azure.Arc.Jumpstart.LocalBox -Force
+$LocalBoxConfig = Import-PowerShellDataFile "C:\LocalBox\LocalBox-Config.psd1"
+$localCred = New-Object PSCredential("Administrator", (ConvertTo-SecureString $LocalBoxConfig.SDNAdminPassword -AsPlainText -Force))
+$domainCred = New-Object PSCredential(($LocalBoxConfig.SDNDomainFQDN.Split(".")[0] + "\Administrator"), (ConvertTo-SecureString $LocalBoxConfig.SDNAdminPassword -AsPlainText -Force))
+
+foreach ($VM in $LocalBoxConfig.NodeHostConfig) {
+    $mac = New-AzLocalNodeVM -Name $VM.Hostname -VHDXPath "V:\VMs\AzL-node.vhdx" -VMSwitch "InternalSwitch" -LocalBoxConfig $LocalBoxConfig
+    Set-AzLocalNodeVhdx -HostName $VM.Hostname -IPAddress $VM.IP -VMMac $mac -LocalBoxConfig $LocalBoxConfig
+    Start-VM -Name $VM.Hostname
 }
+
+# 4. Wait for VMs to boot, then configure networking
+Test-AllVMsAvailable -LocalBoxConfig $LocalBoxConfig -Credential $localCred
+Start-Sleep -Seconds 60
+Set-DataDrives -LocalBoxConfig $LocalBoxConfig -Credential $localCred
+Set-NICs -LocalBoxConfig $LocalBoxConfig -Credential $localCred
+
+# 5. Run cloud deployment prep (domain join + Arc bootstrap)
+Invoke-AzureEdgeBootstrap -LocalBoxConfig $LocalBoxConfig -localCred $localCred
+Set-AzLocalDeployPrereqs -LocalBoxConfig $LocalBoxConfig -localCred $localCred -domainCred $domainCred
+& "C:\LocalBox\Generate-ARM-Template.ps1"
+
+# 6. Re-run validation (step 10) and deploy (step 11)
 ```
 
-**Potential workaround (untested)**: Replace the VHD with a GA image downloaded from the [Azure Stack HCI evaluation page](https://www.microsoft.com/en-us/evalcenter/evaluate-azure-stack-hci). This would require significant re-work of the node configuration (AD join, Arc onboarding, networking) that the Jumpstart scripts normally handle during VHD creation.
+**What does NOT fix the issue**:
+- Windows Update on the 2601 image (updates to 26100.32690, still rejected)
+- The evaluation center download is not publicly accessible
 
 ### Checking Logs Inside the VM
 
