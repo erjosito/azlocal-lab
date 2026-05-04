@@ -27,6 +27,20 @@ Get-HealthFault
 Test-Cluster -Node AzLHOST1, AzLHOST2
 ```
 
+### Azure Registration & Sync
+
+After restarting the lab (or if the cluster shows "NotConnectedRecently" in the portal), trigger a manual sync:
+
+```powershell
+# Check current registration status
+Get-AzureStackHCI
+
+# Force a sync with Azure (updates billing, connectivity status, etc.)
+Sync-AzureStackHCI
+```
+
+> **Tip**: The cluster syncs automatically every ~12 hours. If you restart the lab after a multi-day shutdown, it may show "Not connected" in the Azure portal until the next scheduled sync. Use `Sync-AzureStackHCI` to fix it immediately.
+
 ### Storage Spaces Direct
 
 ```powershell
