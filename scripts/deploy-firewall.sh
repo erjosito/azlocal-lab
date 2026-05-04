@@ -190,7 +190,7 @@ EOF
 az_text rest --method put --url "$FIREWALL_URL" --body "$FIREWALL_BODY" --output none >/dev/null
 
 FIREWALL_PRIVATE_IP=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
     FIREWALL_PRIVATE_IP=$(az_text resource show --ids "$FIREWALL_ID" --api-version "$FIREWALL_API_VERSION" --query "properties.ipConfigurations[0].properties.privateIPAddress" -o tsv 2>/dev/null || true)
     [[ -n "$FIREWALL_PRIVATE_IP" ]] && break
     sleep 10
