@@ -314,7 +314,7 @@ Then re-launch the setup with the retry script.
 
 **Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230**. This build is Microsoft's own latest distributed image (recipe 12.2604 from the `Microsoft.AzureStackHCI/locations/osImages` API), yet the validation service rejects it — an internal inconsistency at Microsoft where their deployment pipeline ships a build that their validation pipeline rejects.
 
-> **Update (May 2026)**: Upstream now ships `AzLocal2604.vhdx` ([commit 027b955](https://github.com/microsoft/azure_arc/commit/027b955)). This newer image may resolve the OS version issue. If it does not, the workaround below still applies — use `AzLocal2506.vhdx` as the replacement.
+> **Update (May 2026)**: Upstream now ships `AzLocal2604.vhdx` ([commit 027b955](https://github.com/microsoft/azure_arc/commit/027b955)). ✅ **Confirmed**: `AzLocal2604` passes OS version validation successfully — no VHD swap workaround needed for new deployments.
 
 Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
 
@@ -356,7 +356,13 @@ Set-AzLocalDeployPrereqs -LocalBoxConfig $LocalBoxConfig -localCred $localCred -
 # 6. Re-run validation (step 10) and deploy (step 11)
 ```
 
-**Status**: Confirmed fixed — `AzLocal2506.vhdx` (build 26100.4349) passes all 16 validation steps (including OS version). After swapping the VHD, you may also need to fix NTP (see Bug #10 below) and storage account shared key access (see Bug #11 below). The newer `AzLocal2604.vhdx` should also work — to be confirmed.
+**Status**: ✅ **FIXED upstream** — `AzLocal2604.vhdx` (shipped since [commit 027b955](https://github.com/microsoft/azure_arc/commit/027b955), May 2026) passes all validation steps including OS version. No VHD swap workaround needed for new deployments. The older workaround (`AzLocal2506.vhdx`) also still works if needed.
+
+<details>
+<summary>Historical workaround (no longer needed for new deployments)</summary>
+
+**Workaround**: Replace the failing VHD with an older VHD that uses build **26100.1742** (GA release track). See the collapsed steps above for the full procedure using `AzLocal2506.vhdx`.
+</details>
 
 **What does NOT fix the issue**:
 - Windows Update on the 2601 image (updates to 26100.32690, still rejected)
