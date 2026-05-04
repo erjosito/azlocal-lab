@@ -172,9 +172,9 @@ else
 fi
 
 if ! az_text_allow_failure rest --method get --url "$NETWORK_RCG_URL" >/dev/null; then
-    echo "Creating empty network rule collection group '$NETWORK_RCG_NAME'..."
+    echo "Creating network rule collection group '$NETWORK_RCG_NAME' with baseline rules..."
     NETWORK_RCG_BODY=$(cat <<EOF
-{"properties":{"priority":200,"ruleCollections":[{"name":"AllowRequired","priority":200,"ruleCollectionType":"FirewallPolicyFilterRuleCollection","action":{"type":"Allow"},"rules":[]}]}}
+{"properties":{"priority":200,"ruleCollections":[{"name":"AllowRequired","priority":200,"ruleCollectionType":"FirewallPolicyFilterRuleCollection","action":{"type":"Allow"},"rules":[{"name":"allow-dns","ruleType":"NetworkRule","sourceAddresses":["*"],"destinationAddresses":["*"],"destinationPorts":["53"],"ipProtocols":["UDP","TCP"]},{"name":"allow-ntp","ruleType":"NetworkRule","sourceAddresses":["*"],"destinationAddresses":["*"],"destinationPorts":["123"],"ipProtocols":["UDP"]},{"name":"allow-smb-internal","ruleType":"NetworkRule","sourceAddresses":["172.16.0.0/12","10.0.0.0/8"],"destinationAddresses":["10.0.0.0/8"],"destinationPorts":["445"],"ipProtocols":["TCP"]},{"name":"allow-quic-internal","ruleType":"NetworkRule","sourceAddresses":["172.16.0.0/12","10.0.0.0/8"],"destinationAddresses":["10.0.0.0/8"],"destinationPorts":["443"],"ipProtocols":["UDP"]}]}]}}
 EOF
 )
     az_text rest --method put --url "$NETWORK_RCG_URL" --body "$NETWORK_RCG_BODY" --output none >/dev/null

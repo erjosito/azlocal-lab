@@ -37,15 +37,42 @@ When the firewall route is applied, traffic from `LocalBox-Subnet` no longer goe
 
 ### Network Rules
 
-| Collection | Priority | Rule | Destination | Protocols | Notes |
-|---|---:|---|---|---|---|
-| AllowRequired | 200 | _TBD_ | _TBD_ | _TBD_ | Initially empty. Populate from denied traffic analysis. |
+| Collection | Priority | Rule | Source | Destination | Ports | Protocols | Notes |
+|---|---:|---|---|---|---|---|---|
+| AllowRequired | 200 | allow-dns | `*` | `*` | 53 | UDP, TCP | DNS resolution (8.8.8.8, root servers) |
+| AllowRequired | 200 | allow-ntp | `*` | `*` | 123 | UDP | NTP time sync (time.windows.com) |
+| AllowRequired | 200 | allow-smb-internal | `172.16.0.0/12, 10.0.0.0/8` | `10.0.0.0/8` | 445 | TCP | SMB to Azure storage private endpoints |
+| AllowRequired | 200 | allow-quic-internal | `172.16.0.0/12, 10.0.0.0/8` | `10.0.0.0/8` | 443 | UDP | QUIC to Azure storage private endpoints |
 
-## Discovered Rules
+## Discovered Endpoints
 
-_No discovered rules yet._
+Observed from firewall application rule logs (May 2026) — all HTTPS from `172.16.1.4` (LocalBox-Client):
 
-Use the monitoring scripts to identify denied destinations and add only the rules the lab actually needs.
+| FQDN | Hits | Purpose |
+|------|------|---------|
+| `us-v20.events.endpoint.security.microsoft.com` | 21 | Microsoft Defender for Endpoint |
+| `edr-eus3.us.endpoint.security.microsoft.com` | 7 | Defender EDR |
+| `gcs.prod.monitoring.core.windows.net` | 6 | Azure Monitor Guest Config |
+| `westus-mdm.prod.hot.ingest.monitor.core.windows.net` | 6 | Azure Monitor MDM |
+| `mobile.events.data.microsoft.com` | 6 | Microsoft telemetry |
+| `mdav.us.endpoint.security.microsoft.com` | 5 | Defender Antivirus |
+| `westeurope-gas.guestconfiguration.azure.com` | 2 | Azure Guest Configuration |
+| `ecs.office.com` | 2 | Office config service |
+| `client.wns.windows.com` | 2 | Windows Push Notifications |
+| `v20.events.data.microsoft.com` | 2 | Telemetry |
+| `v10.events.data.microsoft.com` | 1 | Telemetry |
+
+Denied network traffic that required new rules:
+
+| Dest IP | Port | Protocol | Hits | Resolution |
+|---------|------|----------|------|------------|
+| `8.8.8.8` | 53 | UDP | 3348 | → `allow-dns` rule |
+| `192.203.230.10` | 53 | UDP | 254 | → `allow-dns` rule |
+| `192.112.36.4` | 53 | UDP | 215 | → `allow-dns` rule |
+| `10.71.x.x` | 445 | TCP | ~500 | → `allow-smb-internal` rule |
+| `10.71.x.x` | 443 | UDP | ~390 | → `allow-quic-internal` rule |
+| `20.101.57.9` | 123 | UDP | 16 | → `allow-ntp` rule |
+| `104.40.149.189` | 123 | UDP | 16 | → `allow-ntp` rule |
 
 ## How to Add New Rules
 
