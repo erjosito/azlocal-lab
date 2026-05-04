@@ -184,15 +184,18 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 .\scripts\retry-setup.ps1 -ResourceGroup myLocalBoxLab -Action retry
 ```
 
-#### 2. VHD download fails — storage account disabled (upstream bug)
+#### 2. VHD download fails — storage account disabled (upstream bug) ✅ FIXED
 
 **Symptom**: `AzL-node.vhdx: MISSING` in diagnostics even though azcopy is installed. The progress report (`-Action progress`) shows Step 1/11 was reached but Step 3/11 was not.
 
-**Cause**: The upstream storage account `azlocalvhds.blob.core.windows.net` used by the Jumpstart scripts returns **403 AccountIsDisabled**. This is an upstream issue tracked in [microsoft/azure_arc#3400](https://github.com/microsoft/azure_arc/issues/3400). The same VHD files are available on the older storage account `jumpstartprodsg.blob.core.windows.net`.
+**Cause**: The upstream storage account `azlocalvhds.blob.core.windows.net` used by the Jumpstart scripts returned **403 AccountIsDisabled**. Tracked upstream: [microsoft/azure_arc#3400](https://github.com/microsoft/azure_arc/issues/3400).
 
-> **Note (May 2026)**: Upstream now ships `AzLocal2604.vhdx`. If the `azlocalvhds` storage account is still disabled, the workaround below applies — just replace `2604` in the URLs.
+**Status**: ✅ **Fixed as of May 2026** — the `azlocalvhds.blob.core.windows.net` storage account is operational again. `AzLocal2604.vhdx` downloads successfully from it. No workaround needed for new deployments.
 
-**Fix**: Patch the download URLs inside the VM and re-run the setup. Connect via RDP or Bastion and run:
+<details>
+<summary>Historical workaround (no longer needed)</summary>
+
+Patch the download URLs inside the VM to use the fallback storage account:
 
 ```powershell
 # Inside the VM — patch the cluster script
@@ -206,7 +209,7 @@ $script = $script.Replace(
 Set-Content C:\LocalBox\New-LocalBoxCluster.ps1 -Value $script -Encoding UTF8
 ```
 
-Or remotely via `az vm run-command` (save the above as a `.ps1` file and run it with `--scripts @file.ps1`). Then re-launch the setup with the retry script.
+</details>
 
 #### 3. Storage pool timing issue after Hyper-V reboot
 
