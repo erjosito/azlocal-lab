@@ -152,6 +152,8 @@ The LocalBox VM is an **E32s_v6** (32 vCPUs, 256 GB RAM). Estimated costs:
 
 The LocalBox deployment is a two-phase process: Phase 1 deploys Azure resources via Bicep (~30 min), and Phase 2 runs an automated PowerShell script inside the VM (~4-5 hours) that builds the nested Hyper-V cluster. Phase 2 is where most issues occur.
 
+> **Upstream reliability improvements (Apr 2026)**: [Commit c5b0554](https://github.com/microsoft/azure_arc/commit/c5b0554) added VHDX copy verification with retry, node VM post-creation checks, a missing scheduled task trigger for headless deployments, resource provider registration polling, and SYSTEM context handling. These fixes reduce the likelihood of silent failures in Phase 2. If you deployed before this date, some of the issues below may apply.
+
 ### Diagnosing Issues
 
 Use the retry-setup script to check the health of the internal setup without needing to RDP into the VM:
@@ -188,17 +190,19 @@ This runs diagnostics remotely via `az vm run-command` and reports the status of
 
 **Cause**: The upstream storage account `azlocalvhds.blob.core.windows.net` used by the Jumpstart scripts returns **403 AccountIsDisabled**. This is an upstream issue tracked in [microsoft/azure_arc#3400](https://github.com/microsoft/azure_arc/issues/3400). The same VHD files are available on the older storage account `jumpstartprodsg.blob.core.windows.net`.
 
+> **Note (May 2026)**: Upstream now ships `AzLocal2604.vhdx`. If the `azlocalvhds` storage account is still disabled, the workaround below applies — just replace `2604` in the URLs.
+
 **Fix**: Patch the download URLs inside the VM and re-run the setup. Connect via RDP or Bastion and run:
 
 ```powershell
 # Inside the VM — patch the cluster script
 $script = Get-Content C:\LocalBox\New-LocalBoxCluster.ps1 -Raw
 $script = $script.Replace(
-    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2601.vhdx',
-    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2601.vhdx')
+    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2604.vhdx',
+    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2604.vhdx')
 $script = $script.Replace(
-    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2601.sha256',
-    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2601.sha256')
+    'https://azlocalvhds.blob.core.windows.net/images/AzLocal2604.sha256',
+    'https://jumpstartprodsg.blob.core.windows.net/jslocal/localbox/prod/AzLocal2604.sha256')
 Set-Content C:\LocalBox\New-LocalBoxCluster.ps1 -Value $script -Encoding UTF8
 ```
 
@@ -307,9 +311,11 @@ Then re-launch the setup with the retry script.
 
 **Cause**: The VHD image `AzLocal2601.vhdx` distributed by the Jumpstart upstream contains Azure Stack HCI 24H2 **build 26100.32230**. This build is Microsoft's own latest distributed image (recipe 12.2604 from the `Microsoft.AzureStackHCI/locations/osImages` API), yet the validation service rejects it — an internal inconsistency at Microsoft where their deployment pipeline ships a build that their validation pipeline rejects.
 
+> **Update (May 2026)**: Upstream now ships `AzLocal2604.vhdx` ([commit 027b955](https://github.com/microsoft/azure_arc/commit/027b955)). This newer image may resolve the OS version issue. If it does not, the workaround below still applies — use `AzLocal2506.vhdx` as the replacement.
+
 Tracked upstream: [microsoft/azure_arc#3411](https://github.com/microsoft/azure_arc/issues/3411).
 
-**Workaround**: Replace `AzLocal2601.vhdx` with an older VHD from the same Jumpstart storage that uses build **26100.1742** (GA release track):
+**Workaround**: Replace the failing VHD with an older VHD from the same Jumpstart storage that uses build **26100.1742** (GA release track):
 
 ```powershell
 # 1. Stop and remove the node VMs
@@ -347,7 +353,7 @@ Set-AzLocalDeployPrereqs -LocalBoxConfig $LocalBoxConfig -localCred $localCred -
 # 6. Re-run validation (step 10) and deploy (step 11)
 ```
 
-**Status**: Confirmed fixed — `AzLocal2506.vhdx` (build 26100.4349) passes all 16 validation steps (including OS version). After swapping the VHD, you may also need to fix NTP (see Bug #10 below) and storage account shared key access (see Bug #11 below).
+**Status**: Confirmed fixed — `AzLocal2506.vhdx` (build 26100.4349) passes all 16 validation steps (including OS version). After swapping the VHD, you may also need to fix NTP (see Bug #10 below) and storage account shared key access (see Bug #11 below). The newer `AzLocal2604.vhdx` should also work — to be confirmed.
 
 **What does NOT fix the issue**:
 - Windows Update on the 2601 image (updates to 26100.32690, still rejected)
