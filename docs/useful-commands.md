@@ -229,7 +229,7 @@ These commands run from your local machine (not inside the VMs). They query the 
 # Set variables (adjust if your resource group or workspace name differs)
 rg="azlocal2"
 logws_name="LocalBox-Workspace"
-logws_id=$(az resource list -g $rg -n $logws_name --query '[].id' -o tsv)
+logws_id=$(az monitor log-analytics workspace show -n $logws_name -g $rg --query customerId -o tsv)
 ```
 
 ### Query Denied Traffic
