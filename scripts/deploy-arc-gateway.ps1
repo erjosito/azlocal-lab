@@ -277,12 +277,85 @@ function Show-ManualConfigurationInstructions {
     Write-Host ""
     Write-Host "2. On LocalBox-Client, run these commands on both nested nodes:"
     Write-Host "   azcmagent config set connection.type gateway"
-    Write-Host "   azcmagent config set connection.gateway-resource-id $GatewayResourceId"
     Write-Host "   Restart-Service himds"
     Write-Host ""
     Write-Host "3. Verify on each node:"
     Write-Host "   azcmagent show"
     Write-Host "   azcmagent check"
+}
+
+function Test-AgentVersion {
+    param(
+        [string]$Rg,
+        [string]$ClientVm,
+        [string[]]$Nodes,
+        [string]$Password
+    )
+
+    $quotedNodes = ($Nodes | ForEach-Object { "'$_'" }) -join ", "
+    $escapedPassword = $Password.Replace("'", "''")
+    $minVersion = [version]"1.47.0"
+
+    $versionScript = @"
+`$nodes = @($quotedNodes)
+`$securePassword = ConvertTo-SecureString '$escapedPassword' -AsPlainText -Force
+`$credential = [PSCredential]::new('jumpstart\Administrator', `$securePassword)
+
+foreach (`$node in `$nodes) {
+    `$ver = Invoke-Command -VMName `$node -Credential `$credential -ScriptBlock {
+        (azcmagent version) -replace '.*\s+', ''
+    }
+    Write-Output "`$node=`$ver"
+}
+"@
+
+    Write-Host "Checking azcmagent version on nested nodes..."
+    $result = Invoke-AzCli -Arguments @(
+        "vm", "run-command", "invoke",
+        "--resource-group", $Rg,
+        "--name", $ClientVm,
+        "--command-id", "RunPowerShellScript",
+        "--scripts", $versionScript,
+        "--query", "value[0].message",
+        "-o", "tsv"
+    ) -AllowFailure
+
+    if (-not $result -or -not $result.Output) {
+        Write-Host "  Could not determine agent versions (VM may be unreachable). Continuing anyway." -ForegroundColor Yellow
+        return
+    }
+
+    $tooOld = @()
+    foreach ($line in ($result.Output -split "`n")) {
+        $line = $line.Trim()
+        if ($line -match '^(\w+)=(.+)$') {
+            $nodeName = $Matches[1]
+            $verString = $Matches[2].Trim()
+            try {
+                $ver = [version]$verString
+                if ($ver -lt $minVersion) {
+                    $tooOld += "$nodeName (v$verString)"
+                }
+                Write-Host "  $nodeName : v$verString" -ForegroundColor $(if ($ver -lt $minVersion) { "Yellow" } else { "Green" })
+            } catch {
+                Write-Host "  $nodeName : $verString (could not parse)" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    if ($tooOld.Count -gt 0) {
+        Write-Host ""
+        Write-Host "WARNING: Arc Gateway requires azcmagent v1.47+. The following nodes are too old:" -ForegroundColor Red
+        foreach ($n in $tooOld) { Write-Host "  - $n" -ForegroundColor Red }
+        Write-Host ""
+        Write-Host "Upgrade the agent on each node before configuring the gateway:" -ForegroundColor Yellow
+        Write-Host '  Invoke-WebRequest -Uri "https://aka.ms/AzureConnectedMachineAgent" -OutFile "$env:TEMP\AzureConnectedMachineAgent.msi" -UseBasicParsing'
+        Write-Host '  Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\AzureConnectedMachineAgent.msi", "/qn", "/norestart" -Wait'
+        Write-Host ""
+        throw "Agent version too old on: $($tooOld -join ', '). Upgrade before retrying with -Configure."
+    }
+
+    Write-Host "  All agents meet minimum version requirement (v$minVersion+)." -ForegroundColor Green
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -355,6 +428,8 @@ Write-Host " Location            : $Location"
 Write-Host ""
 
 if ($Configure) {
+    Test-AgentVersion -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -Password $NestedAdminPassword
+    Write-Host ""
     Write-Host "Associating the Arc resources and configuring the agents to use the gateway..." -ForegroundColor Cyan
     Update-ArcGatewayAssociation -Rg $ResourceGroup -Nodes $nestedNodes -GatewayResourceId $gateway.id -Detach $false
     Invoke-ArcAgentConfiguration -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -ConnectionType "gateway" -GatewayResourceId $gateway.id -Password $NestedAdminPassword
