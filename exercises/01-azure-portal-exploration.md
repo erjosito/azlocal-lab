@@ -8,6 +8,7 @@ By the end of this exercise, you will understand:
 - The relationship between Arc-enabled servers, the cluster, and custom locations
 - How Azure management features extend to hybrid resources
 - What operations you can perform on Azure Local from the portal
+- How Azure Local maintains connectivity with Azure and how to trigger manual sync
 
 ## Prerequisites
 
@@ -121,7 +122,51 @@ If you deleted the Custom Location, you'd lose the ability to deploy new VMs or 
 
 </details>
 
-### Task 5: Compare with "Normal" Azure Resources
+### Task 5: Explore the Arc Resource Bridge
+
+The Custom Location you just explored is backed by an **Azure Arc Resource Bridge**. Find the resource bridge in your resource group (it's named something like `localbox-cl` or similar).
+
+**Questions to answer:**
+- What type of resource is the Arc Resource Bridge?
+- What is its status — is it running and connected?
+- What Kubernetes version is it running?
+- How does it relate to the Custom Location and the cluster?
+
+<details>
+<summary>🔍 Hint 1 — Finding the resource</summary>
+
+In the resource group, filter by type or search for "Arc Resource Bridge" or "appliance." It shows up as a `Microsoft.ResourceConnector/appliances` resource. You can also find it by clicking on the Custom Location and looking at its "Host Resource" property.
+
+</details>
+
+<details>
+<summary>🔍 Hint 2 — What to look for</summary>
+
+Open the resource and check:
+- **Overview**: Status, provisioning state, Kubernetes version
+- **Properties**: The infrastructure type (HCI = Azure Local), the distro (usually "aksarc")
+- Where it runs: it's a small Kubernetes cluster deployed as a VM on your Azure Local hosts
+
+</details>
+
+<details>
+<summary>⚠️ Spoiler: Explanation</summary>
+
+The **Arc Resource Bridge** is the control plane that makes Azure Local workloads possible:
+
+- It's a lightweight Kubernetes cluster (a single-node `aksarc` distro) running as a VM on the Azure Local hosts
+- It acts as a **translator** between Azure Resource Manager (ARM) and the on-premises infrastructure
+- When you deploy a VM from the Azure Portal, ARM sends the request to the Resource Bridge, which then talks to the Azure Local cluster to actually create the VM via Hyper-V
+- The Custom Location is essentially a "label" that points to this bridge — it tells ARM "send deployment requests for this location to this specific bridge"
+- The bridge also runs **cluster extensions** (like the VM operator and AKS operator) that know how to create and manage different workload types
+
+**Architecture flow:** Azure Portal → ARM → Arc Resource Bridge → Cluster Extensions → Hyper-V/Azure Local
+
+If the bridge goes down, you can't deploy or manage workloads from Azure, but existing VMs continue running on the cluster (they're just Hyper-V VMs under the hood).
+
+</details>
+
+### Task 6: Compare with "Normal" Azure Resources
 
 This is a thought exercise. Look at how Arc-enabled resources compare to native Azure resources:
 
@@ -149,6 +194,71 @@ This is a thought exercise. Look at how Arc-enabled resources compare to native 
 This is a key insight: **Arc extends management and governance, not compute lifecycle.** Azure can monitor, audit, and enforce policy on Arc-enabled machines, but it doesn't control the power button or hardware allocation — that's handled by the local infrastructure (in this case, Azure Local/Hyper-V).
 
 </details>
+
+## Pre-Flight Check: Cluster Connectivity & Updates
+
+**Goal:** Verify that the Azure Local cluster is actively talking to Azure and fully up to date before moving on to later exercises.
+
+**Why this matters:** Azure Local is managed through Azure, but the cluster only syncs with Azure periodically (roughly every 12 hours). If the lab has been shut down for a while, the portal may show the cluster as **"Not connected recently"** even though the nodes are healthy locally. A manual sync refreshes the cluster's status, inventory, and management state so the portal reflects reality — and later exercises (creating networks, deploying VMs) depend on this connection being active.
+
+**What you need to figure out:**
+- Does the cluster show **Connected** in the Azure Portal?
+- Are there any pending solution updates that should be installed before you continue?
+- If the cluster is disconnected, how do you force a sync from the host?
+
+<details>
+<summary>🔍 Hint 1 — Check connectivity in the portal</summary>
+
+In Azure Portal, open your Azure Local cluster resource and look at its connection/health status. If it says **Connected**, you're good. If it says **Not connected recently**, the cluster likely just hasn't completed its next scheduled sync yet.
+
+</details>
+
+<details>
+<summary>🔍 Hint 2 — Check for updates</summary>
+
+In the same cluster resource, open the **Updates** blade. If you see pending solution updates, install them before moving on. Plan for this to take **30-60 minutes**.
+
+</details>
+
+<details>
+<summary>🔍 Hint 3 — Force a manual sync if needed</summary>
+
+If the cluster has been powered off for a while, do the check-in from the host instead of waiting for the next automatic sync. From `LocalBox-Client`, open an elevated PowerShell session, remote into `AzLHOST1`, run `Sync-AzureStackHCI`, then confirm the result with `Get-AzureStackHCI`.
+
+</details>
+
+<details>
+<summary>⚠️ Spoiler: Full Solution</summary>
+
+1. In Azure Portal, open the Azure Local cluster resource and confirm the status is **Connected**.
+2. Open the cluster's **Updates** blade and verify there are no pending solution updates.
+3. If the portal shows **Not connected recently**:
+   - RDP into `LocalBox-Client`
+   - Open **PowerShell as Administrator**
+   - Connect to the host:
+     ```powershell
+     Enter-PSSession -ComputerName AzLHOST1 -Credential (Get-Credential)
+     ```
+   - When prompted, use:
+     - **Username:** `jumpstart\Administrator`
+     - **Password:** `Microsoft123!`
+   - Force a sync:
+     ```powershell
+     Sync-AzureStackHCI
+     ```
+   - Verify the cluster is connected:
+     ```powershell
+     Get-AzureStackHCI
+     ```
+   - Confirm `ConnectionStatus` now shows **Connected**.
+4. Return to Azure Portal and refresh the cluster resource.
+5. If the **Updates** blade shows pending updates, start the installation and wait for it to complete before continuing.
+
+**What the sync actually does:** `Sync-AzureStackHCI` forces the cluster to check in with Azure immediately instead of waiting for the next periodic sync window. This updates Azure-side management state so later exercises (logical networks, VM images, and VM deployment) work more predictably.
+
+</details>
+
+---
 
 ## Reflection Questions
 

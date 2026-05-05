@@ -29,6 +29,8 @@ You've just deployed LocalBox. Before touching any portal features, **map the co
 1. **Connect to LocalBox-Client** — Use RDP to connect to the Azure VM (see the deployment output for the IP address)
 2. **Open Hyper-V Manager** — This is the starting point for understanding the nested stack
 
+> ⚠️ **If an Azure Firewall was deployed**: All traffic to the LocalBox-Client VM is routed through the firewall. For RDP to work, you need a static route in the route table (`LocalBox-RT`) that sends your client's public IP directly to the Internet (bypassing the firewall). Run `scripts/update-client-route.sh` to automatically detect your public IP and add the route, or add it manually in the Azure Portal under Route Tables → `LocalBox-RT` → Routes.
+
 ## Exploration Tasks
 
 ### Task 1: Map the VM Hierarchy

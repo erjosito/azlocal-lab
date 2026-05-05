@@ -21,7 +21,9 @@ In a traditional Azure deployment, you create a VNet, add a subnet, and deploy a
 
 ## Understanding the Network Before You Start
 
-LocalBox comes with preconfigured network segments. Before creating anything, understand what exists:
+LocalBox comes with preconfigured network segments at the infrastructure level (Hyper-V virtual switches and VLAN routing on the VM-Router). These exist in the underlying network fabric but are **not** automatically visible as Azure "Logical Network" resources — you need to create those yourself in Challenge 1.
+
+To see the raw network topology, you'd check the VM-Router (`ip addr`, `ip route`) or the Hyper-V switch config on the nodes. Here's what the infrastructure provides:
 
 | Network | Subnet | VLAN | Purpose |
 |---------|--------|------|---------|
@@ -29,7 +31,7 @@ LocalBox comes with preconfigured network segments. Before creating anything, un
 | VM Network | 192.168.200.0/24 | 200 | Arc-managed VMs |
 | AKS Network | 10.10.0.0/24 | 110 | AKS workload clusters |
 
-> **Key concept:** Unlike Azure VNets (which are software-defined and abstract), logical networks on Azure Local map directly to physical switch ports, VLANs, and IP ranges. If you get the VLAN or subnet wrong, your VMs won't have connectivity.
+> **Key concept:** Unlike Azure VNets (which are software-defined and abstract), logical networks on Azure Local map directly to physical switch ports, VLANs, and IP ranges. Creating a logical network in Azure doesn't create the underlying network — it merely *declares* an existing network segment so Azure can assign IPs and attach VM NICs to it. If you get the VLAN or subnet wrong, your VMs won't have connectivity.
 
 ---
 

@@ -21,6 +21,7 @@ JUMPSTART_DIR="azure_arc"
 BICEP_PATH="azure_jumpstart_localbox/bicep"
 
 RESOURCE_GROUP=""
+TENANT_ID=""
 LOCATION="swedencentral"
 PARAMS_FILE="deploy/main.bicepparam"
 INTERACTIVE=true
@@ -114,6 +115,119 @@ prompt_password() {
         break
     done
     echo "$password"
+}
+
+# Enterprise policy initiatives can disable shared key access on storage accounts,
+# but the LocalBox cluster witness requires key-based authentication.
+fix_storage_policy_conflicts() {
+    local subscription_id=""
+    local management_group_scope=""
+    local resource_group_scope=""
+    local detected_assignments=""
+    local first_assignment=""
+    local assignment_id=""
+    local assignment_name=""
+    local assignment_display=""
+    local fallback_assignment_name="MCAPSGov-Deploy-Diag-LogA-Modify"
+    local exemption_name="localbox-witness-shared-key"
+    local exemption_display_name="LocalBox witness storage requires shared key for cluster validation"
+    local witness_account=""
+
+    echo ""
+    echo "Checking for storage policy conflicts..."
+
+    subscription_id=$(az account show --query id -o tsv 2>/dev/null || true)
+    if [[ -z "$subscription_id" ]]; then
+        echo "  Could not determine subscription ID. Skipping storage policy conflict fix."
+        return 0
+    fi
+
+    if [[ -z "${TENANT_ID:-}" ]]; then
+        TENANT_ID=$(az account show --query tenantId -o tsv 2>/dev/null || true)
+    fi
+    if [[ -z "$TENANT_ID" ]]; then
+        echo "  Could not determine tenant ID. Skipping storage policy conflict fix."
+        return 0
+    fi
+
+    management_group_scope="/providers/Microsoft.Management/managementGroups/$TENANT_ID"
+    resource_group_scope="/subscriptions/$subscription_id/resourceGroups/$RESOURCE_GROUP"
+
+    detected_assignments=$(az policy assignment list \
+        --scope "$management_group_scope" \
+        --query "[?(contains(displayName, 'Deploy') || contains(displayName, 'Modify') || contains(to_string(@), 'StorageAccountDisableLocalAuth'))].[id, name, displayName]" \
+        -o tsv 2>/dev/null || true)
+
+    if [[ -n "$detected_assignments" ]]; then
+        echo "  Detected potentially conflicting policy assignments:"
+        while IFS=$'\t' read -r _ detected_name detected_display; do
+            [[ -z "$detected_name" ]] && continue
+            echo "    - $detected_name ($detected_display)"
+        done <<< "$detected_assignments"
+
+        first_assignment=$(printf '%s\n' "$detected_assignments" | head -n 1)
+        IFS=$'\t' read -r assignment_id assignment_name assignment_display <<< "$first_assignment"
+    fi
+
+    if [[ -z "$assignment_id" ]]; then
+        assignment_id=$(az policy assignment show \
+            --name "$fallback_assignment_name" \
+            --scope "$management_group_scope" \
+            --query id -o tsv 2>/dev/null || true)
+        if [[ -n "$assignment_id" ]]; then
+            assignment_name="$fallback_assignment_name"
+            echo "  Falling back to known policy assignment: $assignment_name"
+        fi
+    fi
+
+    if [[ -z "$assignment_id" ]]; then
+        echo "  No conflicting policies detected."
+        return 0
+    fi
+
+    echo "  Using policy assignment: $assignment_name"
+
+    if az policy exemption show --name "$exemption_name" --scope "$resource_group_scope" --query name -o tsv >/dev/null 2>&1; then
+        echo "  Policy exemption '$exemption_name' already exists."
+    else
+        if az policy exemption create \
+            --name "$exemption_name" \
+            --display-name "$exemption_display_name" \
+            --policy-assignment "$assignment_id" \
+            --exemption-category "Waiver" \
+            --scope "$resource_group_scope" \
+            --policy-definition-reference-ids "StorageAccountDisableLocalAuth" \
+            --output none >/dev/null 2>&1; then
+            echo "  Created policy exemption '$exemption_name'."
+        else
+            echo "  Could not create policy exemption automatically. Continuing without failing."
+        fi
+    fi
+
+    witness_account=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'localboxw')].name | [0]" -o tsv 2>/dev/null || true)
+    if [[ -z "$witness_account" ]]; then
+        witness_account=$(az storage account list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || true)
+    fi
+
+    if [[ -z "$witness_account" ]]; then
+        echo "  No witness storage account found in resource group."
+        return 0
+    fi
+
+    echo "  Updating witness storage account: $witness_account"
+    az storage account update \
+        -n "$witness_account" \
+        -g "$RESOURCE_GROUP" \
+        --allow-shared-key-access true \
+        --output none >/dev/null
+    echo "  Enabled shared key access."
+
+    az storage account update \
+        -n "$witness_account" \
+        -g "$RESOURCE_GROUP" \
+        --public-network-access Enabled \
+        --output none >/dev/null
+    echo "  Enabled public network access."
 }
 
 # ── Generate parameters interactively ─────────────────────────────
@@ -316,6 +430,8 @@ az deployment group create \
     --template-file "$JUMPSTART_DIR/$BICEP_PATH/main.bicep" \
     --parameters "$JUMPSTART_DIR/$BICEP_PATH/main.bicepparam" \
     --verbose
+
+fix_storage_policy_conflicts
 
 echo ""
 echo "============================================="
