@@ -387,4 +387,4 @@ Invoke-Command -ComputerName AzLHOST1 -ScriptBlock {
 } -Credential $cred
 ```
 
-> **Note**: Set `$cred = Get-Credential jumpstart\Administrator` first (password: `Microsoft123!`).
+> **Note**: Set `$cred = Get-Credential jumpstart\Administrator` first (use the password you chose during deployment).

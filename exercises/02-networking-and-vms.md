@@ -158,7 +158,7 @@ Download the image to the LocalBox-Client VM first.
 You need to copy the VHD to a Cluster Shared Volume (CSV) so the cluster can access it. Since LocalBox-Client isn't domain-joined, you need explicit credentials:
 
 ```powershell
-net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator Microsoft123!
+net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator <your-deployment-password>
 Copy-Item "C:\path\to\image.vhd" "Z:\"
 ```
 
@@ -180,7 +180,7 @@ LocalBox-Client is not domain-joined, so you need explicit credentials to access
 
 ```powershell
 # Map a drive to the cluster shared volume
-net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator Microsoft123!
+net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator <your-deployment-password>
 
 # Copy the VHD (adjust the source path to where you extracted it)
 Copy-Item "C:\Users\Administrator\Downloads\noble-server-cloudimg-amd64.vhd" "Z:\"

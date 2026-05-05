@@ -10,7 +10,7 @@ param(
     [Parameter(Mandatory)][string]$ResourceGroup,
     [string]$Location,
     [string]$GatewayName = "LocalBox-ArcGateway",
-    [string]$NestedAdminPassword = "Microsoft123!",
+    [Parameter(Mandatory)][string]$NestedAdminPassword,
     [switch]$Configure,
     [switch]$Remove
 )

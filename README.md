@@ -378,7 +378,7 @@ Set-AzLocalDeployPrereqs -LocalBoxConfig $LocalBoxConfig -localCred $localCred -
 
 ```powershell
 # Inside LocalBox-Client, run on both nodes:
-$pw = ConvertTo-SecureString "Microsoft123!" -AsPlainText -Force
+$pw = ConvertTo-SecureString "<your-deployment-password>" -AsPlainText -Force
 $cred = New-Object PSCredential("Administrator", $pw)
 
 foreach ($node in @("AzLHOST1","AzLHOST2")) {

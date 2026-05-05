@@ -12,7 +12,7 @@ set -euo pipefail
 RESOURCE_GROUP=""
 LOCATION=""
 GATEWAY_NAME="LocalBox-ArcGateway"
-NESTED_ADMIN_PASSWORD="Microsoft123!"
+NESTED_ADMIN_PASSWORD=""
 CONFIGURE=false
 REMOVE=false
 CLIENT_VM_NAME="LocalBox-Client"
@@ -26,7 +26,7 @@ usage() {
     echo "  --resource-group, -g        Resource group containing the LocalBox lab (required)"
     echo "  --location, -l              Azure region for the gateway resource (defaults to RG location)"
     echo "  --gateway-name              Name for the Arc Gateway resource (default: LocalBox-ArcGateway)"
-    echo "  --nested-admin-password     Local administrator password on AzLHOST1/AzLHOST2 (default: Microsoft123!)"
+    echo "  --nested-admin-password     Local administrator password on AzLHOST1/AzLHOST2 (required)"
     echo "  --configure                 Configure the Arc agents on both nested nodes to use the gateway"
     echo "  --remove                    Reset the Arc agents to direct mode and delete the gateway"
     exit 1
@@ -227,6 +227,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$RESOURCE_GROUP" ]] && usage
+
+# Prompt for password if not provided
+if [[ -z "$NESTED_ADMIN_PASSWORD" ]]; then
+    read -rsp "Enter the nested admin password (the one used during deployment): " NESTED_ADMIN_PASSWORD
+    echo
+    [[ -z "$NESTED_ADMIN_PASSWORD" ]] && { echo "Error: password is required."; exit 1; }
+fi
 
 echo "============================================="
 echo " Azure Arc Gateway for LocalBox"

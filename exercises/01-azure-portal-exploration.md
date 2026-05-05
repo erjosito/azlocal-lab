@@ -243,7 +243,7 @@ If the cluster has been powered off for a while, do the check-in from the host i
      ```
    - When prompted, use:
      - **Username:** `jumpstart\Administrator`
-     - **Password:** `Microsoft123!`
+     - **Password:** `<your-deployment-password>`
    - Force a sync:
      ```powershell
      Sync-AzureStackHCI
