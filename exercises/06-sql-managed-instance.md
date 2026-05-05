@@ -220,8 +220,9 @@ extensionId=$(az k8s-extension show --name arc-data-services \
   --cluster-name localbox-aks \
   -g azlocal2 --query id -o tsv)
 
-# Create the custom location
+# Create the custom location (region must match the connected cluster's region)
 az customlocation create -n aks-data-location -g azlocal2 \
+  --location westeurope \
   --namespace arc \
   --host-resource-id $aksClusterId \
   --cluster-extension-ids $extensionId
