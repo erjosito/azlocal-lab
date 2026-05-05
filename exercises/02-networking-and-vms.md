@@ -143,6 +143,8 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
 
 > 💡 **Think about it:** Why can't Azure Local VMs just use Azure Marketplace images directly like regular Azure VMs? What's different about the compute infrastructure?
 
+> ⏱️ **Tip:** Image downloads can be slow (30-60 minutes) and sometimes fail in the emulated environment. Start **both** the Windows marketplace image (this challenge) and the Linux custom image (Challenge 2b) in parallel so you're not blocked waiting for one.
+
 <details>
 <summary>🔍 Hint</summary>
 
@@ -164,6 +166,11 @@ Choose a smaller image (like Windows Server 2025 Core - Smalldisk) to reduce dow
 7. Click **Review + Create** → **Create**
 
 Monitor progress: go to your resource group → find the VM Image resource → check Properties for download status.
+
+> ⚠️ **Image downloads can fail or take a very long time** (30-60+ minutes). The marketplace download depends on cluster storage performance and internet bandwidth through the NAT chain. If the deployment shows "Failed":
+> - Check if the image resource actually exists in the resource group (it may have retried internally and succeeded)
+> - Try again — transient failures are common in the emulated environment
+> - **Recommended:** Start the Linux custom image download (Challenge 2b) in parallel so you're not blocked waiting for a single image
 
 **Why can't Azure Local use images directly?** Because the cluster isn't in an Azure datacenter. The image needs to be physically downloaded to the cluster's local storage before VMs can use it. This is fundamentally different from Azure VMs, which can access marketplace images instantly from Microsoft's storage infrastructure.
 
