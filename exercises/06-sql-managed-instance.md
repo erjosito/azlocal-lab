@@ -34,20 +34,30 @@ Azure Arc-enabled data services bring Azure data platform capabilities to infras
 
 In the LocalBox lab, that Kubernetes platform is typically **AKS on Azure Local**. That means the stack looks like this:
 
-```text
-Azure Portal / Azure Resource Manager
-        |
-        v
-Azure Arc-enabled Kubernetes
-        |
-        v
-Azure Arc Data Controller (control plane on the cluster)
-        |
-        v
-SQL Managed Instance pods + data storage on AKS on Azure Local
-        |
-        v
-Azure Local compute, storage, and networking
+```mermaid
+graph TB
+    subgraph Azure["☁️ Azure Control Plane"]
+        Portal["Azure Portal / ARM"]
+        ArcK8s["Arc-enabled Kubernetes"]
+    end
+
+    subgraph AKS["🏢 AKS on Azure Local"]
+        DataCtrl["Arc Data Controller<br/>(control plane pods)"]
+        SQLMI["SQL Managed Instance<br/>(data + compute pods)"]
+        Storage["Persistent Storage<br/>(Azure Local volumes)"]
+    end
+
+    HCI["Azure Local<br/>Compute, Storage, Networking"]
+
+    Portal --> ArcK8s
+    ArcK8s <--> DataCtrl
+    DataCtrl --> SQLMI
+    SQLMI --> Storage
+    AKS --> HCI
+
+    style Azure fill:#e8f4fd,stroke:#0078d4
+    style AKS fill:#e3f2fd,stroke:#1565c0
+```
 ```
 
 This model is useful when you need:

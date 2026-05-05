@@ -15,6 +15,64 @@ Azure Local (formerly Azure Stack HCI) is Microsoft's hybrid cloud operating sys
 
 Think of it as a miniature datacenter running inside Azure, connected back to Azure through Arc.
 
+### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph Azure["☁️ Azure"]
+        Portal["Azure Portal / ARM"]
+        LC["LocalBox-Client VM<br/>(Standard_E32s_v6)"]
+    end
+
+    subgraph LocalBoxClient["💻 LocalBox-Client (Hyper-V Host)"]
+        AzLHOST1["AzLHOST1<br/>Azure Local Node 1"]
+        AzLHOST2["AzLHOST2<br/>Azure Local Node 2"]
+        AzLMGMT["AzLMGMT<br/>Management Host"]
+    end
+
+    subgraph MgmtVMs["🖥️ AzLMGMT (Nested Hyper-V)"]
+        DC["JumpstartDC<br/>Domain Controller + DNS"]
+        Router["Vm-Router<br/>Inter-VLAN Routing + NAT"]
+    end
+
+    LC --> LocalBoxClient
+    AzLMGMT --> MgmtVMs
+    AzLHOST1 & AzLHOST2 -.->|Arc Agent| Portal
+    
+    style Azure fill:#e8f4fd,stroke:#0078d4
+    style LocalBoxClient fill:#fff3e0,stroke:#f57c00
+    style MgmtVMs fill:#f3e5f5,stroke:#7b1fa2
+```
+
+### Network Topology
+
+```mermaid
+graph LR
+    subgraph Mgmt["Management Network<br/>192.168.1.0/24"]
+        H1["AzLHOST1<br/>.11"]
+        H2["AzLHOST2<br/>.12"]
+        MGMT["AzLMGMT<br/>.11"]
+        DCn["JumpstartDC<br/>.254"]
+        RTR["Vm-Router<br/>.1"]
+    end
+
+    subgraph VLAN200["VLAN 200 — VM Network<br/>192.168.200.0/24"]
+        VM1["Arc VMs"]
+    end
+
+    subgraph VLAN110["VLAN 110 — AKS Network<br/>10.10.0.0/24"]
+        AKS["AKS Nodes"]
+    end
+
+    RTR -->|gateway| VLAN200
+    RTR -->|gateway| VLAN110
+    RTR -->|NAT| Internet((Internet))
+
+    style Mgmt fill:#e8f5e9,stroke:#2e7d32
+    style VLAN200 fill:#fff3e0,stroke:#f57c00
+    style VLAN110 fill:#e3f2fd,stroke:#1565c0
+```
+
 ## The Challenge
 
 You've just deployed LocalBox. Before touching any portal features, **map the complete architecture** by exploring the nested virtualization stack. Your goal is to answer:

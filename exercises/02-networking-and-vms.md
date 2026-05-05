@@ -25,6 +25,40 @@ LocalBox comes with preconfigured network segments at the infrastructure level (
 
 To see the raw network topology, you'd check the VM-Router (`ip addr`, `ip route`) or the Hyper-V switch config on the nodes. Here's what the infrastructure provides:
 
+```mermaid
+graph TB
+    subgraph Azure["☁️ Azure VNet"]
+        LBC["LocalBox-Client<br/>Public IP + NSG"]
+    end
+
+    LBC -->|Internal vSwitch| Mgmt
+
+    subgraph Mgmt["Management — 192.168.1.0/24 (untagged)"]
+        H1["AzLHOST1 .11"]
+        H2["AzLHOST2 .12"]
+        AM["AzLMGMT .11"]
+        DC["JumpstartDC .254<br/>(DNS)"]
+        VR["Vm-Router .1<br/>(Default GW)"]
+    end
+
+    VR -->|"VLAN 200"| VLAN200
+    VR -->|"VLAN 110"| VLAN110
+    VR -->|NAT| Internet((Internet))
+
+    subgraph VLAN200["VM Network — 192.168.200.0/24 (VLAN 200)"]
+        ArcVMs["Arc-managed VMs<br/>GW: Vm-Router"]
+    end
+
+    subgraph VLAN110["AKS Network — 10.10.0.0/24 (VLAN 110)"]
+        AKSNodes["AKS cluster nodes<br/>GW: Vm-Router"]
+    end
+
+    style Azure fill:#e8f4fd,stroke:#0078d4
+    style Mgmt fill:#e8f5e9,stroke:#2e7d32
+    style VLAN200 fill:#fff3e0,stroke:#f57c00
+    style VLAN110 fill:#e3f2fd,stroke:#1565c0
+```
+
 | Network | Subnet | VLAN | Purpose |
 |---------|--------|------|---------|
 | Management | 192.168.1.0/24 | - | Cluster nodes, DC, router |

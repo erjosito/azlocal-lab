@@ -20,6 +20,40 @@ By the end of this exercise, you will understand:
 
 One of the key value propositions of Azure Local is that it's managed **from Azure**. Unlike traditional on-premises infrastructure where you need separate tools (vCenter, SCVMM, etc.), Azure Local resources appear right in the Azure Portal alongside your cloud resources. This exercise explores what that looks like in practice.
 
+```mermaid
+graph TB
+    RG["Resource Group"]
+    
+    subgraph AzLocal["Azure Local Resources"]
+        Cluster["Azure Local Cluster<br/>(localboxcluster)"]
+        CL["Custom Location<br/>(jumpstart-cl)"]
+        Arc1["Machine - Azure Arc<br/>(AzLHOST1)"]
+        Arc2["Machine - Azure Arc<br/>(AzLHOST2)"]
+    end
+
+    subgraph Infra["Azure Infrastructure"]
+        VM["LocalBox-Client VM"]
+        VNet["Virtual Network"]
+        NSG["Network Security Group"]
+        NAT["NAT Gateway"]
+    end
+
+    subgraph Mgmt["Management"]
+        LAW["Log Analytics Workspace"]
+        SA["Storage Accounts"]
+    end
+
+    RG --> AzLocal
+    RG --> Infra
+    RG --> Mgmt
+    Cluster --> CL
+    Cluster --> Arc1 & Arc2
+
+    style AzLocal fill:#e8f4fd,stroke:#0078d4
+    style Infra fill:#fff3e0,stroke:#f57c00
+    style Mgmt fill:#e8f5e9,stroke:#2e7d32
+```
+
 ## The Challenge
 
 Navigate the Azure Portal to build a complete mental model of your LocalBox deployment. By the end, you should be able to draw a diagram (on paper or whiteboard) showing the relationships between all the Azure resources that were created.

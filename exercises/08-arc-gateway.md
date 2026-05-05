@@ -26,6 +26,27 @@ That is manageable in a lab, but in a locked-down enterprise network it creates 
 
 Azure Arc Gateway is designed for exactly that problem. Instead of every Arc-enabled machine calling many Azure endpoints directly, the agents can proxy through a single Arc Gateway endpoint. In practice, this makes firewall policy easier to understand, easier to audit, and easier to explain to security teams.
 
+```mermaid
+graph LR
+    subgraph Direct["❌ Without Arc Gateway"]
+        Agent1["Arc Agent"] --> EP1["guestnotificationservice.azure.com"]
+        Agent1 --> EP2["his.arc.azure.com"]
+        Agent1 --> EP3["management.azure.com"]
+        Agent1 --> EP4["login.microsoftonline.com"]
+        Agent1 --> EP5["gbl.his.arc.azure.com"]
+        Agent1 --> EP6["...many more"]
+    end
+
+    subgraph WithGW["✅ With Arc Gateway"]
+        Agent2["Arc Agent"] --> GW["Arc Gateway<br/>(single endpoint)"]
+        GW --> AzSvc["Azure Services"]
+        Agent2 -.->|"still needed"| EP7["login.microsoftonline.com"]
+    end
+
+    style Direct fill:#fce4ec,stroke:#c62828
+    style WithGW fill:#e8f5e9,stroke:#2e7d32
+```
+
 Official reference: [Simplify network configuration requirements with Azure Arc gateway](https://learn.microsoft.com/en-us/azure/azure-arc/servers/arc-gateway)
 
 ---

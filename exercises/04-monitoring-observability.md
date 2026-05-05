@@ -21,6 +21,30 @@ In traditional on-premises environments, monitoring is typically a separate isla
 
 This means the same alerts, dashboards, and log queries you use for Azure VMs can work for your Azure Local cluster.
 
+```mermaid
+graph LR
+    subgraph OnPrem["🏢 Azure Local"]
+        Nodes["Cluster Nodes<br/>(AzLHOST1 / AzLHOST2)"]
+        AMA["Azure Monitor Agent"]
+    end
+
+    subgraph AzureMonitor["☁️ Azure Monitor"]
+        DCE["Data Collection<br/>Endpoint"]
+        DCR["Data Collection<br/>Rule"]
+        LAW["Log Analytics<br/>Workspace"]
+        Insights["Insights<br/>Workbook"]
+    end
+
+    Nodes --> AMA
+    AMA -->|sends data| DCE
+    DCE -->|applies rules| DCR
+    DCR -->|stores in| LAW
+    LAW --> Insights
+
+    style OnPrem fill:#fff3e0,stroke:#f57c00
+    style AzureMonitor fill:#e8f4fd,stroke:#0078d4
+```
+
 ---
 
 ## Challenge 1: Discover What's Already Monitored

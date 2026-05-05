@@ -23,6 +23,32 @@ One of the most powerful features of Azure Local is running **AKS (Azure Kuberne
 
 The "enabled by Azure Arc" part means the cluster is registered with Azure and can be managed through the portal, CLI, and Azure APIs — just like a cloud AKS cluster, but running on-prem.
 
+```mermaid
+graph TB
+    subgraph Azure["☁️ Azure Control Plane"]
+        Portal["Azure Portal / CLI"]
+        Arc["Azure Arc"]
+    end
+
+    subgraph LocalInfra["🏢 Azure Local Infrastructure"]
+        subgraph AKSCluster["AKS Cluster (Arc-enabled)"]
+            CP["Control Plane VM"]
+            N1["Worker Node 1"]
+            N2["Worker Node 2"]
+            N3["Worker Node 3"]
+        end
+        HCI["Azure Local Cluster<br/>(Hyper-V hosts)"]
+    end
+
+    Portal --> Arc
+    Arc <-->|Arc Agent| AKSCluster
+    AKSCluster --> HCI
+
+    style Azure fill:#e8f4fd,stroke:#0078d4
+    style LocalInfra fill:#fff3e0,stroke:#f57c00
+    style AKSCluster fill:#e3f2fd,stroke:#1565c0
+```
+
 ### How is this different from cloud AKS?
 
 | Aspect | AKS (Cloud) | AKS on Azure Local |
@@ -201,6 +227,22 @@ In the creation wizard:
 **Goal:** Get `kubectl` access to your AKS cluster running on Azure Local.
 
 This is where it gets interesting. Unlike cloud AKS where you just run `az aks get-credentials`, AKS on Azure Local uses a **proxy connection through Azure Arc**. You don't need direct network connectivity to the Kubernetes API server — the connection is tunneled through Azure.
+
+```mermaid
+sequenceDiagram
+    participant User as Your Machine
+    participant AzCLI as az connectedk8s proxy
+    participant Azure as Azure Arc Service
+    participant K8s as AKS API Server<br/>(on Azure Local)
+
+    User->>AzCLI: kubectl get pods
+    AzCLI->>Azure: Tunnel request (HTTPS)
+    Azure->>K8s: Forward to cluster (Arc Agent)
+    K8s-->>Azure: Response
+    Azure-->>AzCLI: Tunnel response
+    AzCLI-->>User: Pod list
+    Note over User,K8s: No direct network path needed!<br/>Works from anywhere with Azure access.
+```
 
 > **Where to run commands:** You can run `az` and `kubectl` from **any machine with Azure CLI and internet access** — your local laptop, LocalBox-Client, or any other workstation. The Arc proxy (`az connectedk8s proxy`) establishes a tunnel through Azure, so you don't need direct network connectivity to the AKS control plane network (10.10.0.0/24). This is one of the key benefits of Arc-enabled Kubernetes — management works from anywhere with Azure connectivity, not just from machines inside the datacenter.
 >
