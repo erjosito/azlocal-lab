@@ -172,47 +172,84 @@ The data controller is a prerequisite. Without it, there is nowhere for Azure Ar
 
 **What you need to figure out:**
 
+- What extension must be installed on the AKS cluster before you can deploy the data controller?
+- Does your AKS Arc cluster have a **custom location**? (This is different from the Azure Local cluster's custom location `jumpstart-cl`)
 - Where in the Azure Portal do you create the data controller?
-- Which Kubernetes cluster / custom location should you target?
-- Which namespace should host the data services?
-- What information will you need during the wizard?
+- Which connectivity mode should you use?
+
+> ℹ️ **Important distinction:** The custom location `jumpstart-cl` belongs to the **Azure Local cluster** (the infrastructure). For Arc data services, you need a custom location on the **AKS Arc (connected Kubernetes) cluster** — the workload cluster where SQL MI will actually run.
 
 <details>
-<summary>💡 Hint</summary>
+<summary>🔍 Hint 1 — The extension</summary>
 
-Start from one of these entry points:
+Arc-enabled data services require the **Azure Arc Data Services extension** installed on your connected Kubernetes cluster. You can install it from:
 
-- The **Arc-enabled Kubernetes** cluster resource
-- The **Custom location** resource
-- Search the portal for **Azure Arc data controllers**
+- **Portal:** AKS cluster → Extensions → + Add → search "Azure Arc-enabled data services"
+- **CLI:**
+  ```bash
+  az k8s-extension create --name arc-data-services \
+    --extension-type microsoft.arcdataservices \
+    --cluster-type connectedClusters \
+    --cluster-name localbox-aks \
+    --resource-group azlocal2 \
+    --scope cluster \
+    --release-namespace arc \
+    --auto-upgrade-minor-version false
+  ```
 
-You are looking for a wizard that targets your Arc-enabled Kubernetes cluster in **directly connected** mode.
+Wait for the extension to reach a `Succeeded` provisioning state before proceeding.
 
 </details>
 
 <details>
-<summary>🔓 Solution</summary>
+<summary>🔍 Hint 2 — Custom location for AKS</summary>
 
-A typical deployment flow is:
+After the extension is installed, you need a custom location **on the AKS cluster**:
 
-1. In the Azure Portal, open your Arc-enabled AKS cluster or custom location
-2. Find the option to deploy **Azure Arc-enabled data services**
-3. Choose **Create data controller**
-4. Select your subscription, resource group, and custom location
-5. Use **directly connected** mode
-6. Choose or create a Kubernetes namespace such as `arc`
-7. Use the recommended storage classes and defaults provided by the wizard for the lab
-8. Review and create
+```bash
+# Get the connected cluster ID
+aksClusterId=$(az connectedk8s show -n localbox-aks -g azlocal2 --query id -o tsv)
 
-After deployment, verify:
+# Get the extension ID
+extensionId=$(az k8s-extension show --name arc-data-services \
+  --cluster-type connectedClusters \
+  --cluster-name localbox-aks \
+  -g azlocal2 --query id -o tsv)
 
-- A new **Azure Arc Data Controller** resource appears in Azure
-- Pods are running in the selected namespace
-- The controller reaches a healthy / ready state
+# Create the custom location
+az customlocation create -n aks-data-location -g azlocal2 \
+  --namespace arc \
+  --host-resource-id $aksClusterId \
+  --cluster-extension-ids $extensionId
+```
 
-Why this matters:
+Or from the portal: search **Custom locations** → + Create, select your AKS connected cluster.
 
-The data controller is what translates Azure operations into Kubernetes-native orchestration. Think of it as the bridge between Azure Resource Manager and the SQL MI pods running locally.
+</details>
+
+<details>
+<summary>⚠️ Spoiler: Full Solution</summary>
+
+1. **Install the Arc Data Services extension** on your AKS cluster (portal or CLI as shown in Hint 1)
+2. **Create a custom location** pointing to the AKS cluster + the data services extension (as shown in Hint 2)
+3. **Create the data controller:**
+   - Portal → search **Azure Arc data controllers** → + Create
+   - Select your subscription and resource group (`azlocal2`)
+   - Select the **custom location** you just created (e.g., `aks-data-location`)
+   - Connectivity mode: **Directly connected**
+   - Use defaults for infrastructure, storage classes, and service type
+   - Set a namespace (e.g., `arc`) — this is where data services pods will run
+   - Review + Create
+
+4. **Verify deployment:**
+   ```bash
+   kubectl get pods -n arc
+   ```
+   You should see data controller pods (`bootstrapper`, `controller`, `controldb`, etc.) in Running state.
+
+   In the Azure Portal, a new **Azure Arc Data Controller** resource should appear in your resource group.
+
+> **Deployment time:** The data controller takes 5-10 minutes to fully deploy. If pods are stuck in `Pending`, check that your cluster has enough resources (see the sizing note in Prerequisites).
 
 </details>
 
