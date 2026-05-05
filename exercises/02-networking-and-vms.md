@@ -162,7 +162,7 @@ net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administra
 Copy-Item "C:\path\to\image.vhd" "Z:\"
 ```
 
-Then in the portal, use **Add VM image** → **From local share** and provide the path as seen from the cluster nodes (e.g., `C:\ClusterStorage\UserStorage_1\image.vhd`).
+> ⚠️ **Important:** The UNC path (`\\AzLHOST1\C$\...`) is only for **copying** from LocalBox-Client. When **registering** the image in the portal, use the **local CSV path** instead: `C:\ClusterStorage\UserStorage_1\image.vhd`. The CSV is mounted identically on all cluster nodes — if you use the UNC admin share path, the MOC operator on other nodes won't have access and the import will fail.
 
 </details>
 
@@ -179,7 +179,7 @@ Then in the portal, use **Add VM image** → **From local share** and provide th
 LocalBox-Client is not domain-joined, so you need explicit credentials to access the cluster storage:
 
 ```powershell
-# Map a drive to the cluster shared volume
+# Map a drive to the cluster shared volume (UNC admin share — for copying only)
 net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator <your-deployment-password>
 
 # Copy the VHD (adjust the source path to where you extracted it)
@@ -189,12 +189,12 @@ Copy-Item "C:\Users\Administrator\Downloads\noble-server-cloudimg-amd64.vhd" "Z:
 **Step 3 — Register the image in the Azure Portal:**
 
 1. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
-2. Provide the local path: `C:\ClusterStorage\UserStorage_1\noble-server-cloudimg-amd64.vhd`
+2. Provide the **local CSV path** (not the UNC path!): `C:\ClusterStorage\UserStorage_1\noble-server-cloudimg-amd64.vhd`
 3. Set OS type = Linux, give it a name (e.g., `ubuntu-24.04`)
 4. Select the `jumpstart` custom location
 5. Click **Review + Create** → **Create**
 
-> **Note:** Custom images take longer to provision than marketplace images since there's no optimization or pre-caching.
+> 💡 **Tip:** Custom images from local storage import much faster than marketplace images. A marketplace Windows Server image can take over an hour to download, while a local VHD that's already on the CSV registers in just a few minutes.
 
 </details>
 
