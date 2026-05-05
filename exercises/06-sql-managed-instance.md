@@ -25,7 +25,7 @@ By the end of this exercise, you will understand:
 > - Azure Portal → your AKS cluster → **Node pools** → select the pool → **Scale node pool** → set count to 3
 > - Or via CLI:
 >   ```bash
->   az aksarc nodepool update --cluster-name localbox-aks -g azlocal2 --name nodepool1 --node-count 3
+>   az aksarc nodepool scale --cluster-name localbox-aks -g azlocal2 --name nodepool1 --node-count 3
 >   ```
 
 ## Context
