@@ -148,6 +148,8 @@ Most Linux distributions publish cloud-ready images in VHD format. For example:
 - Ubuntu: https://cloud-images.ubuntu.com/ (look for `.vhd.tar.gz` files under the release you want, e.g., `noble/current/`)
 - You need the Hyper-V / Azure compatible format (VHD or VHDX) — extract the `.tar.gz` to get the raw VHD file
 
+> ⚠️ **Important: Gen1 vs Gen2!** Azure Local typically creates Gen2 (UEFI) VMs. Standard Ubuntu "azure" images (e.g., `noble-server-cloudimg-amd64-azure.vhd.tar.gz`) are Gen1 (MBR/BIOS) and will fail with "corrupted and unreadable" errors if used with a Gen2 VM. Download the **EFI variant** instead — look for files containing `efi` in the name, e.g., `noble-server-cloudimg-amd64-azure.efi.vhd.tar.gz`. Alternatively, select **Generation 1** when registering the image.
+
 Download the image to the LocalBox-Client VM first.
 
 </details>
