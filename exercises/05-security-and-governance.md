@@ -233,4 +233,4 @@ Management Group
 
 ## Next Exercise
 
-➡️ [Exercise 6: Challenge — Hybrid Operations](./06-challenge-operations.md)
+➡️ [Exercise 6: SQL Managed Instance on Azure Local](./06-sql-managed-instance.md)

@@ -470,4 +470,4 @@ In Azure, you should be able to observe:
 
 ## Next Exercise
 
-➡️ [Exercise 8: Azure SRE Agent for Azure Local Operations](./08-sre-agent.md)
+➡️ [Exercise 7: Azure SRE Agent for Azure Local Operations](./07-sre-agent.md)

@@ -402,4 +402,4 @@ You have now gone from understanding Azure Local architecture, to running worklo
 
 ## Next Exercise
 
-➡️ [Exercise 9: Arc Gateway and Network Security](./09-arc-gateway.md)
+➡️ [Exercise 8: Arc Gateway and Network Security](./08-arc-gateway.md)

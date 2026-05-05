@@ -279,6 +279,10 @@ When you are done testing, you can return the lab to direct connectivity.
 2. Which endpoints are still required even after you introduce Arc Gateway, and why?
 3. If you had to document outbound requirements for a production hybrid platform, would you rather hand over the direct-connect list or the Arc Gateway list? Why?
 
+## Next Exercise
+
+➡️ [Exercise 9 (Optional): Challenge — Hybrid Operations](./09-challenge-operations.md)
+
 ## Next Step
 
 ➡️ Re-run your firewall log query one final time and capture a before/after screenshot pair for future demos or design discussions.

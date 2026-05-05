@@ -247,15 +247,9 @@ You've now explored the core operational capabilities of Azure Local through han
    - Azure Arc-enabled data services (SQL Managed Instance on-prem)
    - GitOps for hybrid Kubernetes management
 
-## Next Exercise
+## 🎉 Congratulations
 
-➡️ [Exercise 7: SQL Managed Instance on Azure Local](./07-sql-managed-instance.md)
-
----
-
-## Cleanup
-
-When you're done with the entire lab:
+You've completed all the exercises! When you're done with the entire lab:
 
 ```bash
 ./scripts/cleanup.sh --resource-group <your-resource-group>
