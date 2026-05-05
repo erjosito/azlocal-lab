@@ -238,6 +238,126 @@ A management plane issue does not always mean workloads are down. A data plane i
 
 ---
 
+## Category 7: Arc-Enabled Data Services Issues
+
+### Environment Context — LocalBox Lab
+
+In the emulated LocalBox environment, AKS worker nodes typically use `Standard_A4_v2` VMs. Despite the 8 GB nominal RAM, Kubernetes only reports **~2.5 GB allocatable memory per worker node** (the rest is consumed by the OS, kubelet, and system reservations). The control plane node has ~7.5 GB allocatable but is tainted `NoSchedule` by default.
+
+**Key resource figures for planning:**
+- Worker node allocatable: ~1900m CPU, ~2.5 GB memory each
+- Control plane node: ~4 CPU, ~7.5 GB memory (tainted `node-role.kubernetes.io/control-plane:NoSchedule`)
+- Arc Data Controller `controldb-0` pod: requests **4 GB RAM** minimum
+- SQL Managed Instance (General Purpose, 2 vCPUs): requests **4 vCPUs + 16 GB RAM**
+
+### Custom Locations for Data Services
+
+Arc-enabled data services require their **own custom location** on the AKS Arc-connected cluster. This is separate from the Azure Local cluster's `jumpstart-cl` custom location.
+
+- The custom location must target the **Arc-enabled Kubernetes cluster** (not the Azure Local cluster resource)
+- The `--location` parameter must match the connected cluster's region (e.g., `westeurope`)
+- Region mismatch between the connected cluster and the custom location will cause a deployment error
+
+```bash
+# Get the AKS cluster's connected cluster ID
+aksClusterId=$(az connectedk8s show -n localbox-aks -g <rg> --query id -o tsv)
+
+# Get the data services extension ID
+extensionId=$(az k8s-extension show --cluster-name localbox-aks --cluster-type connectedClusters -g <rg> --name arc-data-services --query id -o tsv)
+
+# Create custom location — region must match the cluster
+az customlocation create -n aks-data-location -g <rg> \
+  --namespace arc \
+  --host-resource-id $aksClusterId \
+  --cluster-extension-ids $extensionId \
+  --location westeurope
+```
+
+### Scenario 7.1: Arc Data Controller Stuck in "Deploying" State
+
+- **Impact**: No data services can be created; SQL MI deployment is blocked
+- **Symptoms**: Data controller resource in Azure shows "Deploying" indefinitely; `controldb-0` pod in Pending or ContainerCreating state
+- **Root Cause**: Insufficient node memory. `controldb-0` requests 4 GB RAM but no worker node has 4 GB allocatable memory in the emulated environment.
+- **Detection**:
+  ```bash
+  kubectl get pods -n arc
+  kubectl describe pod controldb-0 -n arc
+  kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.allocatable.cpu,MEM:.status.allocatable.memory
+  ```
+  Look for `Insufficient memory` in pod events.
+- **Resolution**:
+  - **Option 1 (preferred for production):** Scale to nodes with ≥ 16 GB RAM (e.g., `Standard_D4s_v3`)
+  - **Option 2 (lab workaround):** Remove the control-plane taint so the control plane node (with ~7.5 GB) can schedule data service pods:
+    ```bash
+    kubectl taint nodes <control-plane-node> node-role.kubernetes.io/control-plane:NoSchedule-
+    ```
+  - After removing the taint, the scheduler will place `controldb-0` on the control plane node and the data controller will transition to "Ready"
+- **Prevention**: When deploying AKS clusters that will host data services, use at least 16 GB per node. Add a sizing note to runbooks.
+
+### Scenario 7.2: Arc Data Services Extension Installation Failure
+
+- **Impact**: Cannot create custom location or data controller; entire data services stack is blocked
+- **Symptoms**: Extension shows "Failed" in Azure Portal or CLI; pods in the `arc` namespace are missing or crashing
+- **Root Cause**: The `microsoft.arcdataservices` extension is **not available in the portal Extensions gallery** — it must be installed via CLI. Attempting portal installation results in "extension not found" or silent failure.
+- **Detection**:
+  ```bash
+  az k8s-extension list --cluster-name localbox-aks --cluster-type connectedClusters -g <rg> -o table
+  kubectl get pods -n arc
+  ```
+- **Resolution**:
+  Install the extension via CLI only:
+  ```bash
+  az k8s-extension create --cluster-name localbox-aks \
+    --cluster-type connectedClusters -g <rg> \
+    --name arc-data-services \
+    --extension-type microsoft.arcdataservices \
+    --auto-upgrade false \
+    --scope cluster \
+    --config Microsoft.CustomLocation.ServiceAccount=sa-bootstrapper
+  ```
+  Wait for provisioning state to show "Succeeded" before creating the custom location.
+- **Prevention**: Document that Arc data services extension is CLI-only. Do not attempt portal-based extension installation.
+
+### Scenario 7.3: SQL Managed Instance Pods Stuck in Pending
+
+- **Impact**: SQL MI is not available; application databases cannot be served
+- **Symptoms**: SQL MI resource shows "Deploying" in Azure; pods in the `arc` namespace (especially `sqlmi-*`) are Pending
+- **Root Cause**: SQL MI General Purpose (2 vCPUs) requests at minimum **4 vCPUs and 16 GB RAM**. Combined with data controller overhead, the cluster needs substantial free capacity.
+- **Detection**:
+  ```bash
+  kubectl get pods -n arc
+  kubectl describe pod <sqlmi-pod> -n arc
+  kubectl top nodes
+  ```
+- **Resolution**:
+  - Scale the node pool to 3+ nodes: `az aksarc nodepool scale --cluster-name localbox-aks -g <rg> --name nodepool1 --node-count 3`
+  - If using the emulated environment with small nodes, remove the control-plane taint (see Scenario 7.1)
+  - Verify total cluster allocatable resources exceed data controller + SQL MI combined requirements
+- **Prevention**: Plan cluster capacity before deploying data services. A minimum of 3 nodes with 16 GB RAM each is recommended for SQL MI workloads.
+
+### Scenario 7.4: Custom Location Region Mismatch Error
+
+- **Impact**: `az customlocation create` fails with region mismatch error; data services deployment is blocked
+- **Symptoms**: Error message: "Host resource region: <X> does not match Custom Location region: <Y>"
+- **Root Cause**: The `--location` parameter on `az customlocation create` defaults to a different region than the connected cluster
+- **Detection**: The error message itself is clear and diagnostic
+- **Resolution**:
+  Add `--location <cluster-region>` explicitly to the create command. The region must match the Arc-connected cluster's region, not the resource group's region.
+- **Prevention**: Always specify `--location` explicitly when creating custom locations. Check the cluster region first:
+  ```bash
+  az connectedk8s show -n localbox-aks -g <rg> --query location -o tsv
+  ```
+
+### Data Controller Configuration Notes
+
+- **Kubernetes config template**: Use `azure-arc-aks-hci` for AKS on Azure Local (not `azure-arc-aks` which is for cloud AKS)
+- **SQL MI creation path**: SQL MI is a **top-level Azure resource** — search "SQL Managed Instance – Azure Arc" in the portal, or navigate via Azure Arc → SQL managed instances. It is NOT created from the data controller blade.
+- **Expected pods in `arc` namespace** after full deployment:
+  - Data controller: `controldb-0`, `controller-*`, `logsdb-0`, `logsui-*`, `metricsdb-0`, `metricsdc-*`, `metricsui-*`
+  - SQL MI: `<instance-name>-0` (plus additional pods for HA if configured)
+
+---
+
 ## Investigation Playbook
 
 ### Step-by-Step Approach
