@@ -386,6 +386,14 @@ kubectl apply -f metallb-config.yaml
 
 > **💡 Key takeaway:** On-prem Kubernetes requires you to bring your own LoadBalancer implementation. MetalLB fills this gap by managing IP allocation and L2/BGP advertisement. This is one of the fundamental differences between cloud-managed and on-prem Kubernetes — in the cloud this is invisible infrastructure, on-prem you own it.
 
+**Bonus — Cross-VLAN connectivity test:** If you still have the Linux VM from Exercise 2 running (on VLAN 200, subnet 10.20.0.x), try reaching the nginx LoadBalancer IP from it:
+
+```bash
+curl http://10.10.0.100
+```
+
+If this works, it proves that the VM-Router is correctly routing traffic between VLAN 200 (your VMs) and VLAN 110 (AKS). If it doesn't, revisit the VM-Router routing configuration — this is a common real-world troubleshooting scenario in segmented on-prem networks.
+
 ---
 
 ## Challenge 5: Explore Arc-Enabled Kubernetes in the Portal
