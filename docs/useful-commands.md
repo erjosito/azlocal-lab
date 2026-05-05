@@ -221,6 +221,8 @@ Get-WinEvent -LogName "Microsoft-Windows-Hyper-V-VMMS-Admin" -MaxEvents 20 | ft 
 
 These commands run from your local machine (not inside the VMs). They query the Azure Firewall logs via Log Analytics.
 
+> ℹ️ These commands use bash multiline strings. On Windows, run them from **WSL**, **Azure Cloud Shell**, or collapse each query onto a single line.
+
 ### Prerequisites
 
 ```bash
