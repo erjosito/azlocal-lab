@@ -30,7 +30,7 @@ The "enabled by Azure Arc" part means the cluster is registered with Azure and c
 | Infrastructure | Azure-managed | Your hardware/cluster |
 | Networking | Azure VNet, CNI | Physical/VLAN networks |
 | Node VMs | Azure VMs | Hyper-V VMs on Azure Local |
-| Control plane | Azure-managed | Runs locally, connected via Arc |
+| Control plane | Azure-managed (invisible) | Runs locally as management VMs (consumes cluster resources) |
 | Cluster management | Azure portal/CLI | Azure portal/CLI (via Arc) |
 | Data residency | Azure region | Your datacenter |
 
@@ -54,16 +54,18 @@ AKS needs a **dedicated logical network** that is separate from the VM network y
 - **Subnet:** 10.10.0.0/24
 - **VLAN:** 110
 - **Gateway:** 10.10.0.1
-- **DNS:** 172.16.0.1 (the domain controller)
+- **DNS:** 192.168.1.254 (the domain controller / Vm-Router)
 
 You need to create this logical network before deploying the AKS cluster. Use the Azure portal just like you did in Exercise 2:
 
 1. Go to your Azure Local cluster resource → **Logical networks** → **+ Create**
 2. Name it something descriptive (e.g., `aks-network`)
 3. Use **Static** IP allocation
-4. Configure the subnet: `10.10.0.0/24`, gateway `10.10.0.1`, DNS server `172.16.0.1`
+4. Configure the subnet: `10.10.0.0/24`, gateway `10.10.0.1`, DNS server `192.168.1.254`
 5. Add an IP pool (e.g., `10.10.0.10` to `10.10.0.200`) for Kubernetes nodes and services
 6. Set the VLAN ID to **110**
+
+> ⚠️ **Important:** Double-check all values (especially DNS and gateway) before creating. These settings **cannot be changed after creation** — a mistake means deleting and recreating the logical network.
 
 </details>
 
@@ -136,8 +138,14 @@ In the creation wizard:
   - Leave the pod and service CIDRs at defaults unless they conflict
 
 - **Access:**
-  - Authentication: **Microsoft Entra ID with Kubernetes RBAC**
+  - Authentication: **Microsoft Entra ID with Kubernetes RBAC** (recommended)
   - Admin Group Object IDs: paste the Object ID of the Entra ID group you created
+
+  > **Authentication options explained:**
+  > - **Microsoft Entra ID with Kubernetes RBAC** — cluster access is gated by Entra ID group membership. Users authenticate via `az login` and access is controlled through Azure RBAC. This is the enterprise-grade option and integrates with the rest of your Azure identity management.
+  > - **Local accounts with Kubernetes RBAC** — uses a certificate-based kubeconfig file. Simpler for quick testing, but bypasses Entra ID entirely (no SSO, no conditional access, no audit trail in Entra).
+  >
+  > For this exercise, use **Entra ID** so you experience the full Azure-integrated authentication flow. See [AKS Arc access control documentation](https://learn.microsoft.com/azure/aks/aksarc/aks-entra-id-rbac) for details.
 
 </details>
 
@@ -150,9 +158,10 @@ In the creation wizard:
    - Static IP allocation
    - Address prefix: `10.10.0.0/24`
    - Gateway: `10.10.0.1`
-   - DNS: `172.16.0.1`
+   - DNS: `192.168.1.254`
    - IP pool: `10.10.0.10` – `10.10.0.200`
    - VLAN: `110`
+   - ⚠️ Verify all values before clicking Create — DNS and gateway cannot be changed later!
    - Review + Create
 
 2. **Create the Entra ID group** (if not done already):
@@ -189,7 +198,11 @@ In the creation wizard:
 
 **Goal:** Get `kubectl` access to your AKS cluster running on Azure Local.
 
-This is where it gets interesting. Unlike cloud AKS where you just run `az aks get-credentials`, AKS on Azure Local uses a **proxy connection through Azure Arc**.
+This is where it gets interesting. Unlike cloud AKS where you just run `az aks get-credentials`, AKS on Azure Local uses a **proxy connection through Azure Arc**. You don't need direct network connectivity to the Kubernetes API server — the connection is tunneled through Azure.
+
+> **Where to run commands:** You can run `az` and `kubectl` from **any machine with Azure CLI and internet access** — your local laptop, LocalBox-Client, or any other workstation. The Arc proxy (`az connectedk8s proxy`) establishes a tunnel through Azure, so you don't need direct network connectivity to the AKS control plane network (10.10.0.0/24). This is one of the key benefits of Arc-enabled Kubernetes — management works from anywhere with Azure connectivity, not just from machines inside the datacenter.
+>
+> LocalBox-Client already has Azure CLI and kubectl pre-installed, so it's the easiest option for this lab. If running from your own machine, ensure you have `kubectl` installed (`az aks install-cli`).
 
 **What you need to figure out:**
 - How to authenticate (which Azure CLI identity to use?)

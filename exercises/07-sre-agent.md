@@ -1,4 +1,4 @@
-# Exercise 8: Azure SRE Agent for Azure Local Operations
+# Exercise 7: Azure SRE Agent for Azure Local Operations
 
 ## What You'll Learn
 
@@ -21,7 +21,7 @@ By the end of this exercise, you will understand:
 
 ## Context
 
-This is the **last exercise** in the lab, and it deliberately broadens the focus. Instead of learning another Azure Local feature directly, you will explore how an **Azure SRE Agent** can help operators respond faster when something breaks in a hybrid environment.
+This exercise broadens the focus. Instead of learning another Azure Local feature directly, you will explore how an **Azure SRE Agent** can help operators respond faster when something breaks in a hybrid environment.
 
 The idea is simple:
 
@@ -398,7 +398,7 @@ If you want to push the scenario further, try one of these:
 
 ## Final Note
 
-You have now gone from understanding Azure Local architecture, to running workloads, to monitoring them, and finally to experimenting with AI-assisted operations. That end-to-end view is what makes hybrid platform engineering interesting: the technology only matters if you can operate it well.
+You have now gone from understanding Azure Local architecture, to running workloads, to monitoring them, and now to experimenting with AI-assisted operations. That end-to-end view is what makes hybrid platform engineering interesting: the technology only matters if you can operate it well.
 
 ## Next Exercise
 

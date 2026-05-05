@@ -94,12 +94,12 @@ exercises/                       # Progressive learning path
   03-aks-on-azure-local.md       # Deploy and use AKS on Azure Local
   04-monitoring-observability.md # Azure Monitor and Insights
   05-security-and-governance.md  # Defender, Policy, RBAC
-  06-challenge-operations.md     # Open challenge: hybrid operations
-  07-sql-managed-instance.md     # Arc-enabled SQL MI on Azure Local
-  08-sre-agent.md                # Azure SRE Agent for hybrid incidents
-  09-arc-gateway.md              # Arc Gateway and firewall log comparison
+  06-sql-managed-instance.md     # Arc-enabled SQL MI on Azure Local
+  07-sre-agent.md                # Azure SRE Agent for hybrid incidents
+  08-arc-gateway.md              # Arc Gateway and firewall log comparison
+  09-challenge-operations.md     # (Optional) Open challenge: hybrid operations
   sre-agent-knowledge/
-    azure-local-operations.md    # Knowledge base for Exercise 8
+    azure-local-operations.md    # Knowledge base for Exercise 7
 ```
 
 ## Exercises Overview
@@ -112,10 +112,10 @@ exercises/                       # Progressive learning path
 | 3 | [AKS on Azure Local](exercises/03-aks-on-azure-local.md) | Challenge + Guide | 60-90 min |
 | 4 | [Monitoring & Observability](exercises/04-monitoring-observability.md) | Semi-guided | 45-60 min |
 | 5 | [Security & Governance](exercises/05-security-and-governance.md) | Semi-guided | 45-60 min |
-| 6 | [Challenge: Hybrid Operations](exercises/06-challenge-operations.md) | Open Challenge | 60-90 min |
-| 7 | [SQL Managed Instance on Azure Local](exercises/07-sql-managed-instance.md) | Challenge + Guide | 60-90 min |
-| 8 | [Azure SRE Agent for Azure Local Operations](exercises/08-sre-agent.md) | Challenge + Guide | 60-90 min |
-| 9 | [Arc Gateway and Network Security](exercises/09-arc-gateway.md) | Guided + Analysis | 45-60 min |
+| 6 | [SQL Managed Instance on Azure Local](exercises/06-sql-managed-instance.md) | Challenge + Guide | 60-90 min |
+| 7 | [Azure SRE Agent for Azure Local Operations](exercises/07-sre-agent.md) | Challenge + Guide | 60-90 min |
+| 8 | [Arc Gateway and Network Security](exercises/08-arc-gateway.md) | Guided + Analysis | 45-60 min |
+| 9 | [Challenge: Hybrid Operations](exercises/09-challenge-operations.md) | Optional / Open | 60-90 min |
 
 ## Cost Management
 

@@ -1,8 +1,8 @@
-# Exercise 6: Challenge — Hybrid Operations
+# Exercise 9 (Optional): Challenge — Hybrid Operations
 
 ## Overview
 
-This is an **open challenge**. Unlike previous exercises, you'll receive minimal guidance. The goal is to apply everything you've learned across Exercises 0-5 to solve realistic operational scenarios.
+This is an **optional open challenge**. Unlike previous exercises, you'll receive minimal guidance. The goal is to apply everything you've learned across the earlier exercises to solve realistic operational scenarios.
 
 Each scenario is independent — pick the ones that interest you or try them all.
 

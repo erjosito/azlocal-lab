@@ -64,6 +64,8 @@ The logical network needs these settings:
 - **VLAN ID:** 200
 - **DNS Server:** 192.168.1.254 (the domain controller)
 
+> ⚠️ **Important:** Double-check all values before creating the logical network. Some settings (such as DNS servers) **cannot be changed after creation** — you would need to delete and recreate the logical network, which also means recreating any VMs attached to it.
+
 Using static IP allocation (with a defined pool) ensures VMs get predictable addresses and that DNS is properly configured on each VM.
 
 </details>
@@ -87,6 +89,8 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
      - IP pool end: `192.168.200.252`
 5. Click **Review + Create** → **Create**
 6. Verify: the logical network should appear in your resource group within a minute
+
+> ⚠️ **Double-check before creating!** Some logical network settings (DNS servers, subnet prefix, gateway) cannot be modified after creation. If you make a mistake, you'll need to delete the logical network and recreate it (along with any VMs using it).
 
 > **Note:** There is also a script `C:\LocalBox\Configure-VMLogicalNetwork.ps1` on LocalBox-Client that does the same thing via CLI, if you prefer to review the programmatic approach after completing the portal walkthrough.
 
@@ -258,10 +262,19 @@ On the Networking tab, click "Add network interface" and select the logical netw
 <details>
 <summary>🔍 Hint 3 — Connecting to the VM</summary>
 
-The VM is on the 192.168.200.0/24 subnet, which is NOT directly routable from your machine or even from LocalBox-Client. You need to "hop" through the management VM:
+The VM is on the 192.168.200.0/24 subnet, which is NOT directly routable from your machine or even from LocalBox-Client. You need to "hop" through the management VM (AzLMGMT at 192.168.1.11):
 
+**For Windows VMs:**
 1. From LocalBox-Client: `mstsc /v:192.168.1.11` (connect to AzLMGMT)
 2. From AzLMGMT: `mstsc /v:192.168.200.x` (connect to your new VM, replace x with its IP)
+
+**For Linux VMs:**
+1. From LocalBox-Client: `mstsc /v:192.168.1.11` (connect to AzLMGMT)
+2. From AzLMGMT, open PowerShell or Command Prompt:
+   ```
+   ssh <username>@192.168.200.x
+   ```
+   Use the credentials you specified when creating the VM. If the VM uses a cloud image (e.g., Rocky Linux), the default user may vary — check what you configured during VM creation.
 
 </details>
 
@@ -288,7 +301,9 @@ The VM is on the 192.168.200.0/24 subnet, which is NOT directly routable from yo
 1. Wait for the VM to show as "Running" in the portal
 2. Check its IP address in the VM resource's properties (will be in 192.168.200.x range)
 3. From LocalBox-Client: `mstsc /v:192.168.1.11` (connect to AzLMGMT)
-4. From AzLMGMT: `mstsc /v:192.168.200.x`
+4. From AzLMGMT:
+   - **Windows VM:** `mstsc /v:192.168.200.x`
+   - **Linux VM:** open PowerShell and run `ssh <username>@192.168.200.x`
 
 **Note:** The VM appears as an Azure resource managed through Arc, just like it would on real Azure Local hardware. You can see it in the portal, apply policies to it, and monitor it — even though it's running on your "on-prem" cluster.
 

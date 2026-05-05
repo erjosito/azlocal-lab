@@ -1,4 +1,4 @@
-# Exercise 7: SQL Managed Instance on Azure Local
+# Exercise 6: SQL Managed Instance on Azure Local
 
 ## What You'll Learn
 
@@ -13,7 +13,7 @@ By the end of this exercise, you will understand:
 
 ## Prerequisites
 
-- Completed Exercises 0-4
+- Completed Exercises 0-3
 - Exercise 3 completed **or** another working AKS cluster on Azure Local
 - LocalBox deployment running and healthy
 - Access to the Azure Portal and the `LocalBox-Client` VM

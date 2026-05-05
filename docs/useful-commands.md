@@ -221,11 +221,20 @@ Get-WinEvent -LogName "Microsoft-Windows-Hyper-V-VMMS-Admin" -MaxEvents 20 | ft 
 
 These commands run from your local machine (not inside the VMs). They query the Azure Firewall logs via Log Analytics.
 
+### Prerequisites
+
+```bash
+# Set variables (adjust if your resource group or workspace name differs)
+rg="azlocal2"
+logws_name="LocalBox-Workspace"
+logws_id=$(az resource list -g $rg -n $logws_name --query '[].id' -o tsv)
+```
+
 ### Query Denied Traffic
 
 ```bash
 # Network rules — denied traffic (last hour)
-az monitor log-analytics query -w <workspace-id> --analytics-query "
+az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWNetworkRule
 | where TimeGenerated > ago(1h)
 | where Action == 'Deny'
@@ -234,7 +243,7 @@ AZFWNetworkRule
 " -o table
 
 # Application rules — denied traffic
-az monitor log-analytics query -w <workspace-id> --analytics-query "
+az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWApplicationRule
 | where TimeGenerated > ago(1h)
 | where Action == 'Deny'
@@ -247,7 +256,7 @@ AZFWApplicationRule
 
 ```bash
 # HTTPS endpoints being accessed (application rules)
-az monitor log-analytics query -w <workspace-id> --analytics-query "
+az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWApplicationRule
 | where TimeGenerated > ago(1h)
 | where Action == 'Allow'
@@ -256,7 +265,7 @@ AZFWApplicationRule
 " -o table
 
 # Network rules — allowed traffic
-az monitor log-analytics query -w <workspace-id> --analytics-query "
+az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWNetworkRule
 | where TimeGenerated > ago(1h)
 | where Action == 'Allow'
@@ -269,7 +278,7 @@ AZFWNetworkRule
 
 ```bash
 # DNS queries going through the firewall
-az monitor log-analytics query -w <workspace-id> --analytics-query "
+az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWDnsQuery
 | where TimeGenerated > ago(1h)
 | summarize Count=count() by QueryName
@@ -278,7 +287,7 @@ AZFWDnsQuery
 " -o table
 ```
 
-> **Tip**: Replace `<workspace-id>` with the Log Analytics workspace ID. For azlocal2: `c77601d4-3f31-4aa3-9c3f-e3f243cbca44`. You can also use the `scripts/monitor-firewall-logs.sh` script.
+> **Tip**: You can also use the `scripts/monitor-firewall-logs.sh` script for a quick overview.
 
 ---
 

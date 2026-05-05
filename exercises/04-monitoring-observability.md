@@ -71,17 +71,17 @@ Use the existing `LocalBox-Workspace` Log Analytics workspace.
 1. Azure Portal → `localboxcluster` → **Capabilities** tab
 2. Click **Insights** → **Getting Started**
 3. Follow the wizard:
-   - Create a new Data Collection Rule (name it something like `localbox-dcr`)
-   - Create a new Data Collection Endpoint (or use default)
-   - Select the `LocalBox-Workspace` as the destination
-4. Click Create and wait for deployment
+   - Rule name: something descriptive (e.g., `dcr00` — note: `AzureStackHCI` is automatically prepended)
+   - Data Collection Endpoint: create a new one (e.g., `azlocal-dce`)
+   - Destination: select the `LocalBox-Workspace` Log Analytics workspace
+4. Click **Review + Create** and wait for deployment
 5. **Wait 15-30 minutes** for initial data to flow
 6. Return to cluster → **Insights** blade to view the monitoring workbook
 
 **Understanding what you just configured:**
 - The DCR tells Azure Monitor *what* to collect (performance counters, event logs, etc.)
 - The DCE is the *endpoint* where agents on the cluster nodes send data
-- The agents on AzLHOST1 and AzLHOST2 push data to the DCE → Azure Monitor → Log Analytics workspace
+- The destination is a **Log Analytics workspace** (queried with KQL) — not to be confused with an Azure Monitor workspace (which is for Prometheus/PromQL)
 
 </details>
 
@@ -154,46 +154,64 @@ Perf
 
 ---
 
-## Challenge 4: Create an Alert Rule
+## Challenge 4: Enable Recommended Alerts
 
-**Goal:** Create an alert that fires when CPU usage on any cluster node exceeds 80% for more than 5 minutes.
+**Goal:** Enable the predefined alert rules that Azure offers for your Azure Local cluster, and then inspect the underlying KQL queries to understand how they work.
+
+The Azure portal offers a set of **recommended alerts** for Azure Local clusters — predefined rules for common conditions like high CPU, memory pressure, and storage utilization. These don't require writing any KQL yourself.
 
 > 💡 **Think about it first:** In a real production environment, what alerts would be critical for an Azure Local cluster? CPU? Memory? Storage? Network? Cluster health?
+
+**What you need to figure out:**
+- Where to find the recommended/predefined alerts for your cluster
+- How to enable them (and optionally configure an action group for notifications)
+- Once created, where to inspect the KQL query behind each alert rule
 
 <details>
 <summary>🔍 Hint</summary>
 
-From the Log Analytics workspace or the cluster resource:
-1. Go to **Alerts** → **Create** → **Alert rule**
-2. Use a **Log search alert** (Custom log search)
-3. Use a KQL query that checks for CPU > 80%
-4. Set evaluation period and frequency
+Navigate to the cluster resource → **Monitoring** → **Alerts** → look for a **Recommended alerts** or **Alert rules** option. The portal will offer preconfigured rules such as:
+- Average CPU utilization > 80%
+- Available memory below threshold
+- Storage pool utilization
+
+Enable the ones that seem relevant. You can configure an action group (email, webhook) or skip that for now.
 
 </details>
 
 <details>
 <summary>⚠️ Spoiler: Full Solution</summary>
 
-1. Azure Portal → `LocalBox-Workspace` → **Alerts** → **Create alert rule**
-2. **Condition**: Custom log search
-3. **Query**:
-   ```kql
-   Perf
-   | where ObjectName == "Processor" and CounterName == "% Processor Time"
-   | where InstanceName == "_Total"
-   | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m), Computer
-   | where AggregatedValue > 80
-   ```
-4. **Alert logic**: Greater than 0 results
-5. **Evaluation**: Every 5 minutes, over last 5 minutes
-6. **Actions**: Create or select an action group (email, webhook, etc.)
-7. **Details**: Name it "High CPU on Azure Local Node"
+1. Azure Portal → `localboxcluster` → **Monitoring** → **Alerts**
+2. Look for **Recommended alert rules** (or click **Alert rules** → **+ Enable recommended alerts**)
+3. Enable the predefined rules — at minimum:
+   - CPU utilization > 80%
+   - Available memory percentage
+   - Storage utilization
+4. Optionally create an **Action group** (email/SMS) to receive notifications
+5. Click **Enable** / **Save**
+
+**Learning exercise — Inspect the KQL behind the alerts:**
+
+Once the rules are created, go to **Alert rules** (in the Alerts blade), click on one of the rules you just enabled, and look at the **Condition** section. You'll see the KQL query that powers the alert. For example, the CPU alert likely uses something like:
+
+```kql
+Perf
+| where ObjectName == "Processor" and CounterName == "% Processor Time"
+| where InstanceName == "_Total"
+| summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m), Computer
+| where AggregatedValue > 80
+```
+
+Understanding these queries helps you:
+- Customize thresholds for your environment
+- Create new alerts for conditions not covered by the defaults
+- Troubleshoot why an alert did or didn't fire
 
 In production, you'd also want alerts for:
-- Storage pool utilization > 80%
 - Cluster node going offline
-- Memory pressure
 - Azure Arc agent disconnections
+- Replication health degradation
 
 </details>
 
@@ -216,6 +234,12 @@ Azure Local Node (AzLHOST1/2)
 ```
 
 **Key insight:** This is the *exact same pipeline* used for Azure VMs. The Azure Monitor Agent doesn't care if it's running on a cloud VM or an Arc-enabled on-prem server — the data flows through the same infrastructure.
+
+> **Log Analytics workspace vs. Azure Monitor workspace — don't confuse them!**
+> - A **Log Analytics workspace** stores logs and performance counters. You query it with **KQL** (Kusto Query Language). This is what DCRs/DCEs feed into for Azure Local Insights.
+> - An **Azure Monitor workspace** stores Prometheus metrics. You query it with **PromQL**. This is typically used for AKS container monitoring (e.g., Container Insights with Managed Prometheus).
+>
+> For Azure Local host monitoring (this exercise), you use **Log Analytics + KQL**. If you later enable Managed Prometheus for your AKS cluster (Exercise 3), that data goes to an **Azure Monitor workspace + PromQL**.
 
 ## Reflection Questions
 

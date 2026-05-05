@@ -1,4 +1,4 @@
-# Exercise 9 — Arc Gateway and Network Security
+# Exercise 8 — Arc Gateway and Network Security
 
 ## Learning Objectives
 
