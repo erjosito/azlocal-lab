@@ -182,22 +182,26 @@ The data controller is a prerequisite. Without it, there is nowhere for Azure Ar
 <details>
 <summary>🔍 Hint 1 — The extension</summary>
 
-Arc-enabled data services require the **Azure Arc Data Services extension** installed on your connected Kubernetes cluster. You can install it from:
+Arc-enabled data services require the **Azure Arc Data Services extension** installed on your connected Kubernetes cluster. This extension is **not available in the portal's Extensions gallery** — you must install it via CLI:
 
-- **Portal:** AKS cluster → Extensions → + Add → search "Azure Arc-enabled data services"
-- **CLI:**
-  ```bash
-  az k8s-extension create --name arc-data-services \
-    --extension-type microsoft.arcdataservices \
-    --cluster-type connectedClusters \
-    --cluster-name localbox-aks \
-    --resource-group azlocal2 \
-    --scope cluster \
-    --release-namespace arc \
-    --auto-upgrade-minor-version false
-  ```
+```bash
+az k8s-extension create --name arc-data-services \
+  --extension-type microsoft.arcdataservices \
+  --cluster-type connectedClusters \
+  --cluster-name localbox-aks \
+  --resource-group azlocal2 \
+  --scope cluster \
+  --release-namespace arc \
+  --auto-upgrade-minor-version false
+```
 
-Wait for the extension to reach a `Succeeded` provisioning state before proceeding.
+Wait for the extension to reach a `Succeeded` provisioning state before proceeding:
+```bash
+az k8s-extension show --name arc-data-services \
+  --cluster-type connectedClusters \
+  --cluster-name localbox-aks \
+  -g azlocal2 --query provisioningState -o tsv
+```
 
 </details>
 
