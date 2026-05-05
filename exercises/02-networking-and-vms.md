@@ -96,7 +96,7 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
 
 ## Challenge 2: Download a VM Image from Azure Marketplace
 
-**Goal:** Before creating a VM, you need an OS image. Download a Windows or Linux image from Azure Marketplace to your Azure Local cluster.
+**Goal:** Before creating a VM, you need an OS image. Download a Windows Server image from Azure Marketplace to your Azure Local cluster.
 
 **What you need to figure out:**
 - Where in the Azure Portal can you manage VM images for Azure Local?
@@ -110,7 +110,7 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
 
 Navigate to your cluster resource → **VM Images** blade. The "Add VM image" dropdown has an "From Azure Marketplace" option.
 
-Choose a smaller image (like Windows Server 2025 Core or Ubuntu Server) to reduce download time.
+Choose a smaller image (like Windows Server 2025 Core - Smalldisk) to reduce download time. Note that only Windows images are available in the marketplace for Azure Local — for Linux you'd need a custom image (see Challenge 2b below).
 
 </details>
 
@@ -128,6 +128,58 @@ Choose a smaller image (like Windows Server 2025 Core or Ubuntu Server) to reduc
 Monitor progress: go to your resource group → find the VM Image resource → check Properties for download status.
 
 **Why can't Azure Local use images directly?** Because the cluster isn't in an Azure datacenter. The image needs to be physically downloaded to the cluster's local storage before VMs can use it. This is fundamentally different from Azure VMs, which can access marketplace images instantly from Microsoft's storage infrastructure.
+
+</details>
+
+---
+
+## Challenge 2b (Optional): Create a Custom Linux Image
+
+**Goal:** The Azure Local marketplace only offers Windows images. If you want to run Linux VMs, you need to bring your own image. Download a Linux cloud image and register it as a custom VM image.
+
+**What you need to figure out:**
+- Where can you get a Linux cloud image (VHDX or VHD format)?
+- How do you upload and register a custom image in Azure Local?
+
+<details>
+<summary>🔍 Hint 1 — Getting the image</summary>
+
+Most Linux distributions publish cloud-ready images in VHD format. For example:
+- Ubuntu: https://cloud-images.ubuntu.com/ (look for `.vhd.zip` files under the release you want)
+- You need the Hyper-V / Azure compatible format (VHD or VHDX)
+
+Download the image to the LocalBox-Client VM first.
+
+</details>
+
+<details>
+<summary>🔍 Hint 2 — Registering the image</summary>
+
+In the Azure Portal, go to your cluster resource → **VM Images** → **Add VM image** → **From local file path** or **From Azure Storage**. You can also use the "From share" option if you place the VHD on a Cluster Shared Volume.
+
+Alternatively, upload the VHD to an Azure Storage account and provide the SAS URL.
+
+</details>
+
+<details>
+<summary>⚠️ Spoiler: Full Solution</summary>
+
+**Option A — Local share path:**
+
+1. Download a Linux cloud image (e.g., Ubuntu 24.04 VHD) to LocalBox-Client
+2. Copy it to a Cluster Shared Volume path, e.g., `\\localboxcluster\ClusterStorage$\UserStorage_1\images\`
+3. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
+4. Provide the share path, a name, and OS type = Linux
+5. Click **Review + Create** → **Create**
+
+**Option B — Azure Storage:**
+
+1. Upload the VHD to an Azure Blob Storage container
+2. Generate a SAS URL for the blob
+3. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From Azure Storage**
+4. Paste the SAS URL, provide a name, and OS type = Linux
+
+> **Note:** Custom images take longer to provision than marketplace images since there's no optimization or pre-caching.
 
 </details>
 
