@@ -190,7 +190,7 @@ A good minimal workflow is:
    - **Threshold**: Static, Greater than 0
    - Same action group configuration
 
-   > ℹ️ **Note:** Container Insights must be enabled on your AKS cluster for either option to work. If `KubePodInventory` shows no data, verify that the `azuremonitor-containers` extension is installed on the Arc-enabled Kubernetes cluster. You can check via Azure Portal → your cluster → Extensions.
+   > ℹ️ **Note:** Container Insights must be enabled on your AKS cluster for either option to work. If `KubePodInventory` shows no data, see the troubleshooting section below.
 
 4. **Verify the alert rule is active**: Azure Monitor → Alerts → Alert rules → confirm your rule shows "Enabled"
 
@@ -206,6 +206,74 @@ kubectl run test-fail --image=nginx --command -- /bin/sh -c "exit 1"
 # Then clean up
 kubectl delete pod test-fail
 ```
+
+### Troubleshooting: Alert Not Firing
+
+If you have a pod in `CrashLoopBackOff` but no alert fires, work through these checks:
+
+**1. Verify Container Insights data is flowing:**
+
+Run this query in your Log Analytics workspace (Azure Monitor → Logs):
+
+```kql
+KubePodInventory
+| where TimeGenerated > ago(30m)
+| summarize count() by ClusterName
+```
+
+If this returns **zero results**, the `ama-logs` agent is not sending data.
+
+**2. Check the `ClusterName` in your alert KQL:**
+
+The `ClusterName` field in Container Insights may differ from the Arc resource name. Run:
+
+```kql
+KubePodInventory | distinct ClusterName | take 10
+```
+
+Then update your alert rule's KQL to match the actual value.
+
+**3. Check if the `ama-logs` pods are running:**
+
+```powershell
+kubectl get pod -n kube-system | Select-String "ama"
+```
+
+If no `ama-logs` pods exist, or they are in `Pending`/`CrashLoopBackOff`, the extension deployed at the ARM level but failed inside the cluster.
+
+**4. Known issue — Extension "Succeeded" but no pods (empty Helm release):**
+
+In some cases, the `azuremonitor-containers` extension shows `provisioningState: Succeeded` in Azure, but deploys **empty Helm releases** with no actual DaemonSets or pods. You can detect this by checking:
+
+```powershell
+kubectl get all -n azuremonitor-containers
+# If this shows no resources, the extension is broken
+
+# Also check Helm release cycling (new releases every 5 minutes with no resources):
+kubectl get secret -n azuremonitor-containers | Select-String "helm.release"
+```
+
+**Fix:** Delete and reinstall the extension:
+
+```powershell
+# Delete (may fail if DCR is orphaned — see note below)
+az k8s-extension delete --name azuremonitor-containers `
+  --cluster-name <your-cluster> --cluster-type connectedClusters `
+  --resource-group <your-rg> --yes
+
+# Reinstall with explicit workspace
+az k8s-extension create --name azuremonitor-containers `
+  --cluster-name <your-cluster> --cluster-type connectedClusters `
+  --resource-group <your-rg> `
+  --extension-type Microsoft.AzureMonitor.Containers `
+  --configuration-settings `
+    logAnalyticsWorkspaceResourceID="<full-workspace-resource-id>" `
+    amalogs.useAADAuth="true"
+```
+
+> ⚠️ **If the delete fails with "ResourceNotFound" for a DCR:** The extension is looking for a Data Collection Rule with a different naming pattern than what actually exists. You may need to manually create a placeholder DCR with the expected name (check the error message), then retry the delete. This is a known ARM cleanup issue.
+
+**5. Timing:** Log-based alerts evaluate every 5 minutes with a 5-minute lookback window. After injecting a fault, allow **10–15 minutes** before concluding the alert isn't working.
 
 </details>
 
