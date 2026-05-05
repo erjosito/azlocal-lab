@@ -244,12 +244,11 @@ AZFWNetworkRule
 | order by Count desc
 " -o table
 
-# Application rules — denied traffic
+# Application rules — all traffic (allow rule permits everything)
 az monitor log-analytics query -w $logws_id --analytics-query "
 AZFWApplicationRule
 | where TimeGenerated > ago(1h)
-| where Action == 'Deny'
-| summarize Count=count() by Fqdn, TargetUrl
+| summarize Count=count() by Fqdn, Action
 | order by Count desc
 " -o table
 ```
