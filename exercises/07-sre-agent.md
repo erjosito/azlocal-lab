@@ -438,93 +438,97 @@ The better you define the agent's operating domain, the better its investigation
 
 **Tasks:**
 
-1. Create or reuse an Azure Monitor **Action Group**
-2. Connect the Action Group to the SRE Agent integration in `sre.azure.com`
-3. Associate that Action Group with your AKS workload alert rule
-4. Verify that a fired alert will be visible to the agent
+1. Create a **Response Plan** in sre.azure.com that matches your alert
+2. Configure the plan's severity filter, keywords, and target custom agent
+3. Set the appropriate autonomy level (Review vs Autonomous)
+4. Verify that a fired alert triggers an automatic investigation
 
 <details>
 <summary>💡 Hint</summary>
 
+The SRE Agent uses **Response Plans** to subscribe to Azure Monitor alerts directly — no webhook or Action Group configuration is needed. The agent monitors alerts at the subscription level and triggers investigations when an alert matches a response plan's filters.
+
 The connection flow is:
 
 ```
-Alert rule fires → Action Group triggered → Webhook calls sre.azure.com → Agent starts investigation
+Alert rule fires → Azure Monitor alert created → SRE Agent matches Response Plan → Agent starts investigation
 ```
 
-You configure this from both sides: the Action Group in Azure Monitor, and the alert integration in sre.azure.com.
+You configure this entirely at sre.azure.com — no changes needed on the Azure Monitor side.
 
 </details>
 
 <details>
 <summary>🔓 Solution</summary>
 
-### Step 1 — Create an Action Group
+### Step 1 — Create a Response Plan
 
-Azure Portal → Monitor → Alerts → **Action groups** → **+ Create**:
+At [sre.azure.com](https://sre.azure.com), open your agent → **Response Plans** → **+ Create**:
 
 | Field | Value |
 |-------|-------|
-| Subscription | Your subscription |
-| Resource group | `azlocal2` |
-| Action group name | `sre-agent-ag` |
-| Display name | `sre-ag` |
+| Name | `AKS Pod Failures` |
+| Description | `Investigate Kubernetes pod failures and crash loops on Azure Local AKS clusters` |
+| Severity | Sev 2, Sev 3 |
+| Title contains (optional) | `Pod Failure` or leave blank to match all alerts from the subscription |
+| Custom Agent | `kubernetes_expert` (or your main agent if no subagents) |
+| Autonomy | **Review** (recommended for initial setup — you approve actions before execution) |
+| Cooldown | 3 hours (prevents repeated investigations of the same alert) |
 
-On the **Notifications** tab: skip (no email/SMS needed — the SRE Agent handles the response).
+### Step 2 — How Response Plans work (no webhook needed)
 
-On the **Actions** tab: skip for now — the webhook action will be added automatically by sre.azure.com in the next step.
+Unlike traditional Action Group webhooks, the SRE Agent integrates at the **subscription level**:
 
-Click **Review + Create** → **Create**.
+- When you added your Azure subscription as a data source (Challenge 3, Step 3), the agent gained the ability to observe alerts fired in that subscription
+- Response Plans define **which alerts** the agent should investigate and **how** (which custom agent, what autonomy level)
+- When a matching alert fires, the agent automatically opens an investigation — no Action Group, no webhook, no manual trigger
 
-### Step 2 — Connect the Action Group to the SRE Agent
+This is simpler and more reliable than webhook-based integration because:
+- No webhook URL to manage or rotate
+- No Action Group configuration needed
+- The agent sees the full alert context directly from Azure Monitor
+- Matching is declarative (severity + keywords + service type)
 
-At [sre.azure.com](https://sre.azure.com):
+### Step 3 — Delete the auto-generated quickstart plan (if present)
 
-1. Open your agent → **Settings** → **Alert integrations** (or **Triggers**)
-2. Click **+ Add integration** → select **Azure Monitor Alerts**
-3. Select your subscription and the Action Group `sre-agent-ag`
-4. Click **Connect**
+When you first create an agent, sre.azure.com may auto-generate a default "quickstart" response plan that catches all alerts. This can conflict with your targeted plan:
 
-What happens behind the scenes:
-- sre.azure.com registers a **webhook action** on your Action Group
-- When the Action Group fires, the webhook sends the alert payload to the agent
-- The agent parses the alert context (resource, severity, description) and begins an investigation
+1. Go to **Response Plans**
+2. If you see a generic plan you didn't create, delete it
+3. Keep only your custom plan(s)
 
-### Step 3 — Link the Action Group to your alert rule
+### Step 4 — Verify the Response Plan is active
 
-Azure Portal → Monitor → Alerts → **Alert rules** → find `AKS Pod Failures - localbox-aks` → **Edit**:
-
-1. Go to the **Actions** tab
-2. Click **+ Select action groups**
-3. Select `sre-agent-ag`
-4. Save the rule
-
-### Step 4 — Verify end-to-end connectivity
-
-Check these three things:
-
-1. **Action Group has webhook**: Azure Portal → Monitor → Action groups → `sre-agent-ag` → look for a webhook action of type "Azure SRE Agent" or a URL pointing to `sre.azure.com`
-2. **Agent shows integration**: sre.azure.com → your agent → Alert integrations → status shows "Connected" or "Active"
-3. **Alert rule references the Action Group**: Monitor → Alert rules → your rule → Actions tab shows `sre-agent-ag`
+1. **sre.azure.com** → your agent → **Response Plans** → status shows "Active"
+2. Confirm the subscription data source is connected and healthy
+3. Optionally fire a test alert (inject a fault — see Challenge 5) and check the **Investigations** tab to see if the agent picks it up automatically
 
 ### What happens when an alert fires
 
 1. Azure Monitor evaluates your KQL query every 5 minutes
 2. If the condition is met (pods in Failed state > 0), the alert transitions to **Fired**
-3. The Action Group is triggered, sending the webhook to sre.azure.com
-4. The SRE Agent receives the alert payload containing:
-   - Alert name, severity, and description
-   - Affected resource (your AKS cluster)
-   - The time window and signal data
-5. The agent begins an automated investigation:
-   - Queries Azure Resource Graph for resource topology
-   - Pulls recent logs from Log Analytics
+3. The SRE Agent scans fired alerts against its Response Plans
+4. Your `AKS Pod Failures` plan matches (severity + subscription)
+5. The agent routes to the designated custom agent (`kubernetes_expert`)
+6. The custom agent begins an automated investigation:
+   - Queries Azure Resource Graph for cluster topology
+   - Pulls recent logs from Log Analytics (KubePodInventory, ContainerLog)
    - Checks Container Insights metrics
    - Correlates with the uploaded knowledge base
    - Produces findings visible on the **canvas**
-6. You review the investigation in sre.azure.com → your agent → **Investigations**
+7. In **Review** mode: you see the findings and approve/reject recommended actions
+8. In **Autonomous** mode: the agent would execute read-only diagnostics immediately
 
-Once complete, the end-to-end flow is fully automatic. The SRE Agent no longer waits for you to describe the incident. It is triggered by the same Azure Monitor pipeline your operations team would use in production.
+You can view all investigations at sre.azure.com → **Investigations**.
+
+### Optional: Action Group webhook (alternative approach)
+
+If you prefer explicit webhook-based triggering (useful if you want the agent to react to specific Action Groups rather than all subscription alerts), you can also:
+
+1. Create an Action Group with a webhook receiver pointing to the agent's endpoint
+2. Associate that Action Group with your alert rule
+
+However, the Response Plan approach is simpler for most scenarios and is the recommended pattern.
 
 </details>
 
