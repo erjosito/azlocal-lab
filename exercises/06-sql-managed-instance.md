@@ -261,9 +261,16 @@ Or from the portal: search **Custom locations** → + Create, select your AKS co
 > ```bash
 > kubectl describe pod <pod-name> -n arc
 > ```
-> Look at the **Events** section at the bottom. A common issue is `Insufficient memory` — the data controller pods (especially `controldb`) need significant RAM. To free up resources:
+> Look at the **Events** section at the bottom. A common issue is `Insufficient memory` — the `controldb` pod alone requests **4 GB RAM** on a single node. In the emulated LocalBox environment, `Standard_A4_v2` worker nodes may only have ~2.5 GB allocatable each — no single node can fit `controldb`. To fix:
 > - Delete any test workloads from Exercise 3: `kubectl delete deployment nginx && kubectl delete svc nginx`
-> - If that's not enough, scale your node pool: `az aksarc nodepool scale --cluster-name localbox-aks -g azlocal2 --name nodepool1 --node-count 4`
+> - **Remove the control-plane taint** so pods can schedule on the control plane node (which has more RAM):
+>   ```bash
+>   # Find the control plane node
+>   kubectl get nodes --selector=node-role.kubernetes.io/control-plane
+>   # Remove the taint
+>   kubectl taint nodes <control-plane-node> node-role.kubernetes.io/control-plane:NoSchedule-
+>   ```
+> - If you recreate the cluster in the future, use a VM size with **16 GB RAM per node** (e.g., `Standard_D4s_v3`) to avoid this issue entirely.
 
 </details>
 

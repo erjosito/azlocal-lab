@@ -179,7 +179,7 @@ In the creation wizard:
    - Kubernetes version: latest available (e.g., 1.28.x or 1.29.x)
    - Node pool: `Standard_A4_v2`, node count: **3** (use 3 nodes if you plan to do Exercise 6 — SQL MI)
 
-   > 💡 **Sizing tip:** If you only plan to run basic workloads (Challenges 4-5), 2 nodes are enough. But SQL Managed Instance (Exercise 6) requires at least 16 GB RAM and 4 cores of **available** capacity. With `Standard_A4_v2` (4 vCPUs / 8 GB per node), you need 3 nodes to have enough headroom for the data controller + SQL MI.
+   > 💡 **Sizing tip:** If you only plan to run basic workloads (Challenges 4-5), 2 nodes are enough. If you plan to deploy **SQL Managed Instance** (Exercise 6), consider using a larger VM size with **16 GB RAM per node** (e.g., `Standard_D4s_v3`). In the emulated LocalBox environment, `Standard_A4_v2` nodes may only get ~2.5 GB allocatable memory each, which is not enough for the data controller's `controldb` pod (requires 4 GB on a single node).
    - Networking: select `aks-network`
    - Access: Microsoft Entra ID + Kubernetes RBAC
    - Admin Group Object IDs: paste your group's Object ID
