@@ -177,7 +177,9 @@ In the creation wizard:
    - Cluster name: `aks-localbox`
    - Custom location: `jumpstart-cl`
    - Kubernetes version: latest available (e.g., 1.28.x or 1.29.x)
-   - Node pool: `Standard_A4_v2`, node count: 2
+   - Node pool: `Standard_A4_v2`, node count: **3** (use 3 nodes if you plan to do Exercise 6 — SQL MI)
+
+   > 💡 **Sizing tip:** If you only plan to run basic workloads (Challenges 4-5), 2 nodes are enough. But SQL Managed Instance (Exercise 6) requires at least 16 GB RAM and 4 cores of **available** capacity. With `Standard_A4_v2` (4 vCPUs / 8 GB per node), you need 3 nodes to have enough headroom for the data controller + SQL MI.
    - Networking: select `aks-network`
    - Access: Microsoft Entra ID + Kubernetes RBAC
    - Admin Group Object IDs: paste your group's Object ID

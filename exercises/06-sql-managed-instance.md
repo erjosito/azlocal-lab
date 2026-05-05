@@ -19,6 +19,15 @@ By the end of this exercise, you will understand:
 - Access to the Azure Portal and the `LocalBox-Client` VM
 - Basic familiarity with Kubernetes and SQL Server concepts
 
+> ⚠️ **Cluster sizing:** SQL Managed Instance requires at least **4 vCPUs and 16 GB RAM available** on your Kubernetes cluster (each node must have ≥ 8 GB RAM and 4 cores). If you deployed with only 2 `Standard_A4_v2` nodes (8 GB each = 16 GB total), system pods will consume enough that SQL MI cannot schedule.
+>
+> **To scale out your node pool** (from 2 → 3 nodes):
+> - Azure Portal → your AKS cluster → **Node pools** → select the pool → **Scale node pool** → set count to 3
+> - Or via CLI:
+>   ```bash
+>   az aksarc nodepool update --cluster-name localbox-aks -g azlocal2 --name nodepool1 --node-count 3
+>   ```
+
 ## Context
 
 Azure Arc-enabled data services bring Azure data platform capabilities to infrastructure that you own. Instead of moving every database into a public Azure region, you can run **SQL Managed Instance enabled by Azure Arc** on Kubernetes in your own datacenter while still using Azure for inventory, governance, monitoring, and lifecycle operations.
