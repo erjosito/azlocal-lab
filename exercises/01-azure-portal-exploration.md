@@ -145,7 +145,7 @@ In the resource group, filter by type or search for "Arc Resource Bridge" or "ap
 Open the resource and check:
 - **Overview**: Status, provisioning state, Kubernetes version
 - **Properties**: The infrastructure type (HCI = Azure Local), the distro (usually "aksarc")
-- Where it runs: it's a small Kubernetes cluster deployed as a VM on your Azure Local hosts
+- It runs as a clustered VM, but with a MOC-generated hash name (e.g., `b9f8131d...-control-plane-0-...`). You won't find a VM called "aksarc" — that's just the distro label in the portal. Use `Get-ClusterResource` or `Get-VM -ComputerName (Get-ClusterNode).Name` to find it.
 
 </details>
 
@@ -154,7 +154,9 @@ Open the resource and check:
 
 The **Arc Resource Bridge** is the control plane that makes Azure Local workloads possible:
 
-- It's a lightweight Kubernetes cluster (a single-node `aksarc` distro) running as a VM on the Azure Local hosts
+- It's a lightweight Kubernetes cluster (a single-node `aksarc` distro) running as a **clustered VM** on the Azure Local hosts
+- The VM has a MOC-generated hash name (e.g., `b9f8131d...-control-plane-0-...`) — "aksarc" is just the distro label shown in the Azure portal, not the VM name
+- Running `Get-VM` on a single host may not show it (it could live on the other node). Use `Get-VM -ComputerName (Get-ClusterNode).Name` or `Get-ClusterResource` to find it
 - It acts as a **translator** between Azure Resource Manager (ARM) and the on-premises infrastructure
 - When you deploy a VM from the Azure Portal, ARM sends the request to the Resource Bridge, which then talks to the Azure Local cluster to actually create the VM via Hyper-V
 - The Custom Location is essentially a "label" that points to this bridge — it tells ARM "send deployment requests for this location to this specific bridge"

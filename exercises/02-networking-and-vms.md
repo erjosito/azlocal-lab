@@ -40,41 +40,51 @@ To see the raw network topology, you'd check the VM-Router (`ip addr`, `ip route
 **Goal:** Create a logical network resource that maps to the preconfigured VM subnet (192.168.200.0/24, VLAN 200) so you can deploy VMs.
 
 **What you need to figure out:**
-- Where is the script that creates the logical network?
-- What parameters does it use (subnet, gateway, DNS, VLAN)?
+- Where in the Azure portal do you create a logical network for Azure Local?
+- What parameters does it need (subnet, gateway, DNS, VLAN)?
 - How do you verify the logical network was created correctly?
 
 <details>
-<summary>🔍 Hint 1</summary>
+<summary>🔍 Hint 1 — Where to start</summary>
 
-Look in the `C:\LocalBox` folder on the LocalBox-Client VM for a script called `Configure-VMLogicalNetwork.ps1`. Review it before running it.
+In the Azure Portal, navigate to your resource group and look at the Azure Local cluster resource (`localboxcluster`). Under **Settings** or **Resources**, look for networking-related options. Alternatively, search for "Logical Networks" in the portal search bar.
 
 </details>
 
 <details>
-<summary>🔍 Hint 2</summary>
+<summary>🔍 Hint 2 — Parameters</summary>
 
 The logical network needs these settings:
+- **Name:** something descriptive (e.g., `vm-network-200`)
+- **VM switch name:** `ConvergedSwitch(oob-hci)` (the virtual switch on the cluster nodes)
 - **Subnet:** 192.168.200.0/24
 - **Gateway:** 192.168.200.1
 - **VLAN ID:** 200
 - **DNS Server:** 192.168.1.254 (the domain controller)
+- **IP allocation:** you can define a pool (e.g., 192.168.200.100–192.168.200.199) or let VMs use static IPs
 
 </details>
 
 <details>
 <summary>⚠️ Spoiler: Full Solution</summary>
 
-1. RDP into LocalBox-Client
-2. Open File Explorer → `C:\LocalBox`
-3. Right-click `Configure-VMLogicalNetwork.ps1` → Run with PowerShell (or open in VS Code and run)
-4. Wait for completion
-5. Verify in Azure Portal: go to your resource group and look for the new Logical Network resource
+1. Azure Portal → your resource group → click on the `localboxcluster` resource
+2. In the left menu, go to **Resources** → **Logical networks**
+3. Click **+ Create**
+4. Fill in:
+   - **Name:** `vm-network-200`
+   - **VM switch name:** `ConvergedSwitch(oob-hci)`
+   - **Network type:** configure manually
+   - Add a subnet with:
+     - Address prefix: `192.168.200.0/24`
+     - Gateway: `192.168.200.1`
+     - VLAN: `200`
+     - DNS servers: `192.168.1.254`
+     - IP pool (optional): `192.168.200.100` – `192.168.200.199`
+5. Click **Review + Create** → **Create**
+6. Verify: the logical network should appear in your resource group within a minute
 
-You can also verify from PowerShell:
-```powershell
-az resource list --resource-group $env:resourceGroup --resource-type "Microsoft.AzureStackHCI/logicalNetworks" -o table
-```
+> **Note:** There is also a script `C:\LocalBox\Configure-VMLogicalNetwork.ps1` on LocalBox-Client that does the same thing via CLI, if you prefer to review the programmatic approach after completing the portal walkthrough.
 
 </details>
 

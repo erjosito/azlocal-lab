@@ -82,9 +82,17 @@ Get-NetIPAddress -AddressFamily IPv4 | ft InterfaceAlias, IPAddress, PrefixLengt
 # VMs hosted on this node
 Get-VM | ft Name, State, CPUUsage, MemoryAssigned, Uptime
 
+# VMs across ALL cluster nodes (needed to find the Arc Resource Bridge)
+Get-VM -ComputerName (Get-ClusterNode).Name | ft Name, State, ComputerName
+
+# Clustered VM resources (includes the Arc Resource Bridge)
+Get-ClusterResource | Where-Object ResourceType -eq "Virtual Machine" | ft Name, State, OwnerNode
+
 # VM replication and migration status
 Get-ClusterGroup | Where-Object GroupType -eq VirtualMachine | ft Name, State, OwnerNode
 ```
+
+> **Note**: The Arc Resource Bridge shows up as a VM with a long MOC-generated hash name (e.g., `b9f8131d...-control-plane-0-...`). "aksarc" is just the distro label in the Azure portal — you won't find a VM literally named "aksarc".
 
 ### Azure Arc Agent
 
