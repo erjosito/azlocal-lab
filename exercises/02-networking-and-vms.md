@@ -56,12 +56,15 @@ In the Azure Portal, navigate to your resource group and look at the Azure Local
 
 The logical network needs these settings:
 - **Name:** something descriptive (e.g., `vm-network-200`)
-- **VM switch name:** `ConvergedSwitch(oob-hci)` (the virtual switch on the cluster nodes)
+- **VM switch name:** `ConvergedSwitch(oob-hci)`
 - **Subnet:** 192.168.200.0/24
 - **Gateway:** 192.168.200.1
+- **IP allocation method:** Static
+- **IP pool:** 192.168.200.10 – 192.168.200.252
 - **VLAN ID:** 200
 - **DNS Server:** 192.168.1.254 (the domain controller)
-- **IP allocation:** you can define a pool (e.g., 192.168.200.100–192.168.200.199) or let VMs use static IPs
+
+Using static IP allocation (with a defined pool) ensures VMs get predictable addresses and that DNS is properly configured on each VM.
 
 </details>
 
@@ -74,13 +77,14 @@ The logical network needs these settings:
 4. Fill in:
    - **Name:** `vm-network-200`
    - **VM switch name:** `ConvergedSwitch(oob-hci)`
-   - **Network type:** configure manually
+   - **IP address allocation method:** Static
    - Add a subnet with:
      - Address prefix: `192.168.200.0/24`
      - Gateway: `192.168.200.1`
      - VLAN: `200`
      - DNS servers: `192.168.1.254`
-     - IP pool (optional): `192.168.200.100` – `192.168.200.199`
+     - IP pool start: `192.168.200.10`
+     - IP pool end: `192.168.200.252`
 5. Click **Review + Create** → **Create**
 6. Verify: the logical network should appear in your resource group within a minute
 
