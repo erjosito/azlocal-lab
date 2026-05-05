@@ -163,19 +163,49 @@ A good minimal workflow is:
    kubectl get pods -o wide
    ```
 2. Confirm the pods are healthy and stable
-3. In Azure Monitor, create an alert rule for your AKS on Azure Local cluster
-4. Use a signal that indicates workload failure, for example:
-   - Pod restarts increasing
-   - `CrashLoopBackOff` entries in Container Insights / logs
-   - A custom log query that detects unhealthy containers
+3. **Create an alert rule** that detects pod failures:
+
+   **Option A — Log-based alert (recommended for this lab):**
+
+   Go to Azure Monitor → Alerts → + Create → Alert Rule:
+   - **Scope**: select your AKS Arc-connected cluster resource (`localbox-aks`)
+   - **Condition**: Custom log search
+   - **KQL query**:
+     ```kql
+     KubePodInventory
+     | where ClusterName == "localbox-aks"
+     | where PodStatus in ("Failed", "Unknown") or ContainerStatusReason == "CrashLoopBackOff"
+     | summarize FailedPods = dcount(PodUid) by bin(TimeGenerated, 5m)
+     | where FailedPods > 0
+     ```
+   - **Alert logic**: Greater than 0, evaluation period 5 minutes, frequency 5 minutes
+   - **Severity**: Sev 2 (Warning)
+   - **Action Group**: create one (you'll connect it to the SRE Agent in Challenge 4)
+   - **Alert rule name**: `AKS Pod Failures - localbox-aks`
+
+   **Option B — Metric-based alert (simpler but less flexible):**
+
+   - **Scope**: your AKS Arc cluster
+   - **Signal**: `Pods in Failed state` (under Container Insights metrics)
+   - **Threshold**: Static, Greater than 0
+   - Same action group configuration
+
+   > ℹ️ **Note:** Container Insights must be enabled on your AKS cluster for either option to work. If `KubePodInventory` shows no data, verify that the `azuremonitor-containers` extension is installed on the Arc-enabled Kubernetes cluster. You can check via Azure Portal → your cluster → Extensions.
+
+4. **Verify the alert rule is active**: Azure Monitor → Alerts → Alert rules → confirm your rule shows "Enabled"
+
 5. Optionally expose the app through a path reachable from a test VM and create a **Connection Monitor** or availability test against it
 
-Why this design works:
+**How to trigger the alert (for testing):**
 
-- The workload is simple enough that any failure is easy to interpret
-- The signal is operationally meaningful
-- You can trigger the agent from both **platform signals** (pod crashes) and **experience signals** (connectivity tests)
-- The same pattern applies later to real applications, not just lab demos
+You'll inject the actual fault in Challenge 5, but if you want to test the alert rule immediately:
+```powershell
+# Create a pod that immediately fails
+kubectl run test-fail --image=nginx --command -- /bin/sh -c "exit 1"
+# Wait 5-10 minutes for the alert to evaluate
+# Then clean up
+kubectl delete pod test-fail
+```
 
 </details>
 
@@ -253,12 +283,33 @@ This should mirror the operational pattern from the networking-sre-agent project
 <details>
 <summary>🔓 Solution</summary>
 
-A typical setup sequence is:
+**Step 1 — Create an Action Group:**
 
-1. In Azure Monitor, create an **Action Group** for SRE investigations
-2. In `sre.azure.com`, enable the Azure Monitor alert integration for your custom agent
-3. Link the Action Group to that integration
-4. Edit your AKS alert rule so it sends fired alerts to the Action Group
+Azure Portal → Monitor → Alerts → Action groups → + Create:
+- **Name**: `sre-agent-ag`
+- **Short name**: `sre-ag`
+- **Notifications**: None (the SRE Agent handles this, not email/SMS)
+- **Actions**: None for now — the integration happens in sre.azure.com
+
+**Step 2 — Connect the Action Group to the SRE Agent:**
+
+At [sre.azure.com](https://sre.azure.com):
+1. Go to your agent → **Settings** → **Alert integrations**
+2. Click **+ Add integration** → select **Azure Monitor**
+3. Select your subscription and the Action Group `sre-agent-ag`
+4. The portal will configure a webhook on the Action Group that notifies the agent when alerts fire
+
+**Step 3 — Link the Action Group to your alert rule:**
+
+Azure Portal → Monitor → Alerts → Alert rules → `AKS Pod Failures - localbox-aks` → Edit:
+- Under **Actions**, add `sre-agent-ag` as an action group
+- Save
+
+**Step 4 — Verify the connection:**
+
+You can verify by checking that:
+- The Action Group shows a webhook action pointing to the SRE Agent endpoint
+- In sre.azure.com → your agent → **Alert integrations**, the integration shows "Connected"
 
 Once complete, the end-to-end flow becomes automatic. The SRE Agent no longer waits for you to describe the incident. It is triggered by the same Azure Monitor pipeline your operations team would use in production.
 
@@ -291,30 +342,52 @@ Then introduce a bad command so the container exits on startup. After a short ti
 <details>
 <summary>🔓 Solution</summary>
 
-Example failure injection:
+**Step 1 — Inject the fault:**
 
 ```powershell
+# Get the container name
 kubectl get deployment localbox-store -o jsonpath='{.spec.template.spec.containers[*].name}'
-kubectl patch deployment localbox-store --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"<container-name>","command":["/bin/sh","-c","echo broken && exit 1"]}]}}}}'
 ```
 
-Replace `<container-name>` with the value returned by the first command.
+Patch the deployment so the container exits immediately on startup:
 
-Then observe:
+```powershell
+kubectl patch deployment localbox-store --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"nginx","command":["/bin/sh","-c","echo broken && exit 1"]}]}}}}'
+```
+
+> ℹ️ Replace `nginx` with whatever container name the first command returned.
+
+**Step 2 — Observe the failure locally:**
 
 ```powershell
 kubectl get pods -w
+# Wait ~30 seconds — you should see pods entering CrashLoopBackOff
 kubectl describe pod <failing-pod-name>
 kubectl logs <failing-pod-name> --previous
 ```
 
-What should happen:
+**Step 3 — Wait for the alert to fire:**
 
-- Pods enter a failed / restarting state
-- Your Azure Monitor rule fires
-- The SRE Agent receives the alert and begins its investigation
+The alert rule evaluates every 5 minutes, so you may need to wait **5-10 minutes** after the pods start crash-looping.
 
-If you prefer a networking-style fault, you can later simulate one by breaking service reachability or applying an overly restrictive NetworkPolicy. The important pattern is the same: **inject fault → alert fires → agent investigates**.
+To check alert status:
+- Azure Portal → Monitor → Alerts → look for a "Fired" alert from your `AKS Pod Failures` rule
+- Or: Azure Portal → your AKS cluster → Alerts blade
+
+**Step 4 — Verify the SRE Agent received the alert:**
+
+Go to [sre.azure.com](https://sre.azure.com) → your agent → Investigations. You should see a new investigation triggered by the fired alert.
+
+> ⚠️ **If the alert doesn't fire:** Check that Container Insights is sending data. Run this KQL in Log Analytics:
+> ```kql
+> KubePodInventory
+> | where ClusterName == "localbox-aks"
+> | where TimeGenerated > ago(15m)
+> | summarize count() by PodStatus
+> ```
+> If this returns no results, Container Insights may not be configured on your Arc-enabled cluster.
+
+If you prefer a networking-style fault, you can simulate one by breaking service reachability or applying an overly restrictive NetworkPolicy. The important pattern is the same: **inject fault → alert fires → agent investigates**.
 
 </details>
 
