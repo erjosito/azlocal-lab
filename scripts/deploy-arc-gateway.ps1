@@ -26,7 +26,7 @@ function Invoke-AzCli {
         [switch]$AllowFailure
     )
 
-    $output = & az @Arguments 2>&1
+    $output = & az @Arguments --only-show-errors 2>&1
     $exitCode = $LASTEXITCODE
 
     if (-not $AllowFailure -and $exitCode -ne 0) {

@@ -104,16 +104,16 @@ This is the architectural change. After this step, the Azure Connected Machine a
 Run one of these commands:
 
 ```powershell
-.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group>
-.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group> -Configure
+# Create the gateway resource only (then configure manually)
+.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group> -NestedAdminPassword <password>
+
+# Create AND configure the agents in one step
+.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group> -NestedAdminPassword <password> -Configure
 ```
 
-```bash
-./scripts/deploy-arc-gateway.sh --resource-group <your-resource-group>
-./scripts/deploy-arc-gateway.sh --resource-group <your-resource-group> --configure
-```
+> **Note:** The `NestedAdminPassword` is the same password you used when deploying LocalBox (the `windowsAdminPassword` from the ARM template). The script needs it to run commands on the nested Hyper-V hosts via `Invoke-Command`.
 
-If you do **not** use `-Configure` / `--configure`, the script prints the manual steps. Those steps do two things:
+If you do **not** use `-Configure`, the script prints the manual steps. Those steps do two things:
 
 1. Associate the Arc-enabled server resources with the Arc Gateway resource in Azure
 2. Reconfigure the local agent on `AzLHOST1` and `AzLHOST2`:
@@ -253,11 +253,7 @@ If this restrictive policy works, you have demonstrated the main security value 
 When you are done testing, you can return the lab to direct connectivity.
 
 ```powershell
-.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group> -Remove
-```
-
-```bash
-./scripts/deploy-arc-gateway.sh --resource-group <your-resource-group> --remove
+.\scripts\deploy-arc-gateway.ps1 -ResourceGroup <your-resource-group> -NestedAdminPassword <password> -Remove
 ```
 
 ### Optional cleanup
@@ -270,6 +266,41 @@ When you are done testing, you can return the lab to direct connectivity.
 - `azcmagent show` reports normal direct connectivity again
 - The Arc Gateway resource is deleted from the resource group
 - Firewall logs return to the broader direct-connect pattern if you re-test later
+
+---
+
+## Troubleshooting
+
+### Script fails immediately with a warning about extensions
+
+**Symptom:** The `deploy-arc-gateway.ps1` script exits with an error referencing a warning like `Unable to load extension 'azure-devops'`.
+
+**Cause:** PowerShell's `$ErrorActionPreference = "Stop"` treats Azure CLI stderr warnings as terminating errors when captured via `2>&1`.
+
+**Fix:** This was fixed by adding `--only-show-errors` to the `Invoke-AzCli` wrapper. If running an older version of the script, pull the latest or add `--only-show-errors` to line 29 manually.
+
+### Gateway creation times out or hangs
+
+Arc Gateway provisioning can take 5-10 minutes. If the script appears stuck at "Waiting for Arc Gateway provisioning to complete", that is normal. The `az resource wait` command polls every 30 seconds with a 30-minute timeout.
+
+You can check status independently:
+
+```bash
+az arcgateway show --name LocalBox-ArcGateway --resource-group <rg> --query provisioningState -o tsv
+```
+
+### Agents lose connectivity after configuring gateway
+
+If `azcmagent check` fails after switching to gateway mode:
+
+1. Verify the gateway resource is in `Succeeded` state
+2. Ensure the firewall allows traffic to `*.gw.arc.azure.com`
+3. Verify the gateway resource ID is set correctly: `azcmagent config get connection.gateway-resource-id`
+4. If stuck, revert to direct mode:
+   ```powershell
+   azcmagent config set connection.type direct
+   Restart-Service himds
+   ```
 
 ---
 

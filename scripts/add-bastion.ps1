@@ -48,8 +48,8 @@ if ([string]::IsNullOrWhiteSpace($bastionSubnet)) {
         --query "addressSpace.addressPrefixes" -o tsv
     Write-Host "  VNet address space: $vnetPrefixes"
 
-    # Propose a /26 subnet
-    $bastionPrefix = "10.16.3.128/26"
+    # Propose a /26 subnet that fits the LocalBox VNet (172.16.x.x)
+    $bastionPrefix = "172.16.3.128/26"
     Write-Host ""
     Write-Host "  Azure Bastion requires a dedicated subnet named 'AzureBastionSubnet'"
     Write-Host "  with at least a /26 prefix. Proposed: $bastionPrefix"
