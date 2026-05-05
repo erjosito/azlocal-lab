@@ -153,31 +153,46 @@ Download the image to the LocalBox-Client VM first.
 </details>
 
 <details>
-<summary>🔍 Hint 2 — Registering the image</summary>
+<summary>🔍 Hint 2 — Copying to cluster storage</summary>
 
-In the Azure Portal, go to your cluster resource → **VM Images** → **Add VM image** → **From local file path** or **From Azure Storage**. You can also use the "From share" option if you place the VHD on a Cluster Shared Volume.
+You need to copy the VHD to a Cluster Shared Volume (CSV) so the cluster can access it. Since LocalBox-Client isn't domain-joined, you need explicit credentials:
 
-Alternatively, upload the VHD to an Azure Storage account and provide the SAS URL.
+```powershell
+net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator Microsoft123!
+Copy-Item "C:\path\to\image.vhd" "Z:\"
+```
+
+Then in the portal, use **Add VM image** → **From local share** and provide the path as seen from the cluster nodes (e.g., `C:\ClusterStorage\UserStorage_1\image.vhd`).
 
 </details>
 
 <details>
 <summary>⚠️ Spoiler: Full Solution</summary>
 
-**Option A — Local share path:**
+**Step 1 — Download and extract the image on LocalBox-Client:**
 
-1. Download a Linux cloud image (e.g., Ubuntu 24.04 VHD) to LocalBox-Client
-2. Copy it to a Cluster Shared Volume path, e.g., `\\localboxcluster\ClusterStorage$\UserStorage_1\images\`
-3. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
-4. Provide the share path, a name, and OS type = Linux
+1. Download a Linux cloud image (e.g., Ubuntu 24.04 VHD) from https://cloud-images.ubuntu.com/noble/current/
+2. Extract the `.tar.gz` to get the raw `.vhd` file
+
+**Step 2 — Copy the VHD to Cluster Shared Volume:**
+
+LocalBox-Client is not domain-joined, so you need explicit credentials to access the cluster storage:
+
+```powershell
+# Map a drive to the cluster shared volume
+net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator Microsoft123!
+
+# Copy the VHD (adjust the source path to where you extracted it)
+Copy-Item "C:\Users\Administrator\Downloads\noble-server-cloudimg-amd64.vhd" "Z:\"
+```
+
+**Step 3 — Register the image in the Azure Portal:**
+
+1. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
+2. Provide the local path: `C:\ClusterStorage\UserStorage_1\noble-server-cloudimg-amd64.vhd`
+3. Set OS type = Linux, give it a name (e.g., `ubuntu-24.04`)
+4. Select the `jumpstart` custom location
 5. Click **Review + Create** → **Create**
-
-**Option B — Azure Storage:**
-
-1. Upload the VHD to an Azure Blob Storage container
-2. Generate a SAS URL for the blob
-3. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From Azure Storage**
-4. Paste the SAS URL, provide a name, and OS type = Linux
 
 > **Note:** Custom images take longer to provision than marketplace images since there's no optimization or pre-caching.
 
