@@ -305,12 +305,16 @@ For a lab, start small and simple:
 
 From the Azure Portal:
 
-1. Open the **Azure Arc Data Controller** resource
-2. Choose **Create SQL Managed Instance**
-3. Enter an instance name such as `localbox-sqlmi`
-4. Configure SQL admin credentials
-5. Select a lab-friendly compute and storage size
-6. Review and create
+1. Search for **"SQL Managed Instance – Azure Arc"** in the top search bar → click **+ Create**
+   - Alternatively: **Azure Arc** (left menu) → **SQL managed instances** → **+ Create**
+   - ⚠️ You do **not** create SQL MI from the data controller resource — it's a separate top-level resource type
+2. Select your subscription and resource group (`azlocal2`)
+3. Select the **custom location** you created earlier (e.g., `aks-data-location`)
+4. Enter an instance name such as `localbox-sqlmi`
+5. Configure SQL admin credentials (username + strong password)
+6. Service tier: **General Purpose** (for lab use)
+7. Select a lab-friendly compute and storage size (minimum: 2 vCPUs, 4 GB RAM)
+8. Review and create
 
 During deployment, remember what is happening underneath:
 
