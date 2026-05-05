@@ -263,30 +263,128 @@ You should see the AKS nodes and system pods running. The cluster is fully opera
 
 ---
 
-## Challenge 4: Deploy a Workload
+## Challenge 4: Deploy a Workload with an External Load Balancer
 
-**Goal:** Deploy a simple web application to your AKS cluster and access it.
+**Goal:** Deploy a web application and expose it externally using a LoadBalancer service — just like you would in the cloud.
 
-Deploy a basic nginx deployment with a service. Then figure out how to access it from LocalBox-Client.
+In cloud AKS, creating a `Service` of type `LoadBalancer` automatically provisions an Azure Load Balancer with a public IP. But on-premises there's no cloud infrastructure to allocate IPs. How do you get the same experience on Azure Local?
+
+**What you need to figure out:**
+- What component provides LoadBalancer functionality on-prem?
+- How do you install and configure it on your AKS cluster?
+- What IP range should it use? (Think about which network your AKS nodes are on)
+
+> ⚠️ **Do NOT install MetalLB via the Azure Portal (Arc Extensions).** The Arc extension for MetalLB may fail with a service principal error (`Resource '' does not exist`) in lab/emulated environments. Instead, install MetalLB directly using its upstream Kubernetes manifests as shown below — the functionality is identical.
 
 <details>
-<summary>🔍 Hint</summary>
+<summary>🔍 Hint 1 — The component you need</summary>
 
-```powershell
-kubectl create deployment nginx --image=nginx --replicas=2
-kubectl expose deployment nginx --port=80 --type=ClusterIP
-kubectl get pods
-kubectl get svc
-```
+**MetalLB** is the standard solution for bare-metal/on-prem LoadBalancer services. It assigns real IPs from a pool you define and announces them via L2 (ARP) or BGP so they're reachable on the local network.
 
-Since there's no external load balancer in this lab, use `kubectl port-forward` to access the service:
-```powershell
-kubectl port-forward svc/nginx 8080:80
-```
-
-Then open `http://localhost:8080` in a browser on LocalBox-Client.
+You need to:
+1. Install MetalLB on your cluster
+2. Configure an IP address pool (from the VLAN 110 subnet: `10.10.0.x`)
+3. Create an L2 advertisement so the IPs are reachable
 
 </details>
+
+<details>
+<summary>🔍 Hint 2 — Installation</summary>
+
+Install MetalLB using its official manifests:
+
+```powershell
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
+```
+
+Wait for the pods to be ready:
+```powershell
+kubectl get pods -n metallb-system -w
+```
+
+</details>
+
+<details>
+<summary>🔍 Hint 3 — Configuration</summary>
+
+Create a file `metallb-config.yaml` with an IP pool from VLAN 110 (pick IPs not used by other resources — the AKS control plane uses 10.10.0.5 and nodes get DHCP addresses from this range too, so use a small range at the high end):
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: aks-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.10.0.100-10.10.0.120
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-advert
+  namespace: metallb-system
+spec: {}
+```
+
+Apply it:
+```powershell
+kubectl apply -f metallb-config.yaml
+```
+
+</details>
+
+<details>
+<summary>⚠️ Spoiler: Full Solution</summary>
+
+1. **Install MetalLB:**
+   ```powershell
+   kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
+   kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=120s
+   ```
+
+2. **Configure IP pool** — save as `metallb-config.yaml`:
+   ```yaml
+   apiVersion: metallb.io/v1beta1
+   kind: IPAddressPool
+   metadata:
+     name: aks-pool
+     namespace: metallb-system
+   spec:
+     addresses:
+     - 10.10.0.100-10.10.0.120
+   ---
+   apiVersion: metallb.io/v1beta1
+   kind: L2Advertisement
+   metadata:
+     name: l2-advert
+     namespace: metallb-system
+   spec: {}
+   ```
+   ```powershell
+   kubectl apply -f metallb-config.yaml
+   ```
+
+3. **Deploy nginx and expose via LoadBalancer:**
+   ```powershell
+   kubectl create deployment nginx --image=nginx --replicas=2
+   kubectl expose deployment nginx --port=80 --type=LoadBalancer
+   ```
+
+4. **Verify it gets an external IP:**
+   ```powershell
+   kubectl get svc nginx -w
+   ```
+   Wait until `EXTERNAL-IP` shows an address like `10.10.0.100` (no longer `<pending>`).
+
+5. **Test access from LocalBox-Client:**
+   Open a browser or use `curl http://10.10.0.100` — you should see the nginx welcome page.
+
+> **Note:** If you can't reach the IP from LocalBox-Client, it may be a routing issue — traffic from LocalBox-Client (192.168.1.x) to 10.10.0.x needs to go through the VM-Router. Verify the route exists: `route print` on LocalBox-Client should show 10.10.0.0/24 via 192.168.1.1.
+
+</details>
+
+> **💡 Key takeaway:** On-prem Kubernetes requires you to bring your own LoadBalancer implementation. MetalLB fills this gap by managing IP allocation and L2/BGP advertisement. This is one of the fundamental differences between cloud-managed and on-prem Kubernetes — in the cloud this is invisible infrastructure, on-prem you own it.
 
 ---
 
