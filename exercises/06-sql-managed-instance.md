@@ -241,6 +241,7 @@ Or from the portal: search **Custom locations** → + Create, select your AKS co
    - Portal → search **Azure Arc data controllers** → + Create
    - Select your subscription and resource group (`azlocal2`)
    - Select the **custom location** you just created (e.g., `aks-data-location`)
+   - Kubernetes configuration template: **`azure-arc-aks-hci`** (this is the correct template for AKS on Azure Local)
    - Connectivity mode: **Directly connected**
    - Use defaults for infrastructure, storage classes, and service type
    - Set a namespace (e.g., `arc`) — this is where data services pods will run
