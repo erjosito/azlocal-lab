@@ -182,6 +182,7 @@ A good minimal workflow is:
    - **Severity**: Sev 2 (Warning)
    - **Action Group**: create one (you'll connect it to the SRE Agent in Challenge 4)
    - **Alert rule name**: `AKS Pod Failures - localbox-aks`
+   - ⚠️ **Auto-mitigation**: Make sure to enable **"Automatically resolve alerts"** (also called `autoMitigate`). If disabled, fired alerts remain in "Fired" state forever even after the problem is fixed, and the SRE Agent may keep re-investigating resolved issues.
 
    **Option B — Metric-based alert (simpler but less flexible):**
 
@@ -274,6 +275,24 @@ az k8s-extension create --name azuremonitor-containers `
 > ⚠️ **If the delete fails with "ResourceNotFound" for a DCR:** The extension is looking for a Data Collection Rule with a different naming pattern than what actually exists. You may need to manually create a placeholder DCR with the expected name (check the error message), then retry the delete. This is a known ARM cleanup issue.
 
 **5. Timing:** Log-based alerts evaluate every 5 minutes with a 5-minute lookback window. After injecting a fault, allow **10–15 minutes** before concluding the alert isn't working.
+
+**6. Alerts fire but never auto-resolve (stay "Fired" forever):**
+
+If you delete the failing pods but the alerts remain in "Fired" state, check whether **auto-mitigation** is enabled on the alert rule:
+
+```powershell
+az monitor scheduled-query show -g <rg> -n "<alert-rule-name>" --query autoMitigate
+```
+
+If it returns `false`, the alerts will never auto-resolve. Fix it:
+
+```powershell
+az monitor scheduled-query update -g <rg> -n "<alert-rule-name>" --auto-mitigate true
+```
+
+To manually close stale alerts, go to Azure Monitor → Alerts → select the fired alerts → Change State → Closed.
+
+> 💡 **Why this matters:** If stale alerts accumulate, the SRE Agent may pick them up again and start investigations for problems that no longer exist. Always enable auto-mitigation for scheduled query rules used with the SRE Agent.
 
 </details>
 

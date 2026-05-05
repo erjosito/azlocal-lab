@@ -224,29 +224,23 @@ function Invoke-ArcAgentConfiguration {
     $runCommandScript = @"
 `$nodes = @($quotedNodes)
 `$securePassword = ConvertTo-SecureString '$escapedPassword' -AsPlainText -Force
-`$credential = [PSCredential]::new('Administrator', `$securePassword)
+`$credential = [PSCredential]::new('jumpstart\Administrator', `$securePassword)
 `$connectionType = '$ConnectionType'
-`$gatewayResourceId = '$escapedGatewayId'
 
 foreach (`$node in `$nodes) {
     Write-Output "=== Configuring `$node ==="
 
     Invoke-Command -VMName `$node -Credential `$credential -ScriptBlock {
         param(
-            [string]`$ConnectionType,
-            [string]`$GatewayResourceId
+            [string]`$ConnectionType
         )
 
         azcmagent config set connection.type `$ConnectionType | Out-Null
 
-        if (`$ConnectionType -eq 'gateway') {
-            azcmagent config set connection.gateway-resource-id `$GatewayResourceId | Out-Null
-        }
-
         Restart-Service himds -Force
         Start-Sleep -Seconds 10
         azcmagent show
-    } -ArgumentList `$connectionType, `$gatewayResourceId
+    } -ArgumentList `$connectionType
 }
 "@
 

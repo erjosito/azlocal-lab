@@ -113,13 +113,22 @@ Run one of these commands:
 
 > **Note:** The `NestedAdminPassword` is the same password you used when deploying LocalBox (the `windowsAdminPassword` from the ARM template). The script needs it to run commands on the nested Hyper-V hosts via `Invoke-Command`.
 
+> ⚠️ **Agent version requirement:** Arc Gateway requires azcmagent **v1.47 or later**. The LocalBox image ships with v1.46, which does not support the `connection.gateway-resource-id` property. If you see `unknown configuration property` errors, upgrade the agent first:
+> ```powershell
+> # On each nested host (via Invoke-Command or RDP to LocalBox-Client):
+> Invoke-WebRequest -Uri "https://aka.ms/AzureConnectedMachineAgent" -OutFile "$env:TEMP\AzureConnectedMachineAgent.msi" -UseBasicParsing
+> Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\AzureConnectedMachineAgent.msi", "/qn", "/norestart" -Wait
+> azcmagent version  # Should now show 1.47+
+> ```
+
 If you do **not** use `-Configure`, the script prints the manual steps. Those steps do two things:
 
-1. Associate the Arc-enabled server resources with the Arc Gateway resource in Azure
+1. Associate the Arc-enabled server resources with the Arc Gateway resource in Azure (ARM-level)
 2. Reconfigure the local agent on `AzLHOST1` and `AzLHOST2`:
    - `azcmagent config set connection.type gateway`
-   - `azcmagent config set connection.gateway-resource-id <gateway-resource-id>`
    - `Restart-Service himds`
+   
+   > 💡 You do **not** need to set `connection.gateway-resource-id` locally — the agent picks up the gateway URL automatically from the ARM association created in step 1.
 
 ### Verification
 
