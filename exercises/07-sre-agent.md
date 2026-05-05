@@ -237,14 +237,71 @@ A good agent name is something like **Azure Local Operations Expert**.
 <details>
 <summary>🔓 Solution</summary>
 
-A strong configuration looks like this:
+### Step 1 — Navigate to sre.azure.com
 
-- **Name**: Azure Local Operations Expert
-- **Description**: Investigates Azure Local, Arc, AKS on Azure Local, and hybrid workload incidents
-- **Data source**: Your Azure subscription that contains the LocalBox resources
-- **Knowledge base files**: Upload `azure-local-operations.md`
+Open [https://sre.azure.com](https://sre.azure.com) and sign in with your Azure credentials. You'll land on the **SRE Agent Home** page.
 
-Why be explicit with the role?
+### Step 2 — Create a new custom agent
+
+1. Click **+ New Agent** (or **Create Agent** on the home page)
+2. Fill in the basic information:
+   - **Name**: `Azure Local Operations Expert`
+   - **Description**: `Investigates Azure Local, Arc, AKS on Azure Local, and hybrid workload incidents. Understands nested virtualization, custom locations, Arc data services, and VLAN networking.`
+
+### Step 3 — Configure Data Sources
+
+The agent needs access to your Azure resources to pull telemetry during investigations:
+
+1. In the agent configuration, go to **Data Sources**
+2. Click **+ Add data source** → **Azure subscription**
+3. Select the subscription containing your LocalBox resources
+4. Grant the agent read access — it will use Azure Resource Graph, Azure Monitor logs, and metrics during investigations
+
+> ℹ️ The agent uses your Azure RBAC permissions. It can only see resources you can see. No special elevated role is needed beyond what you already have for the lab.
+
+### Step 4 — Upload the Knowledge Base
+
+This is what makes the agent domain-specific rather than a generic troubleshooter:
+
+1. Go to **Knowledge Base** in the agent settings
+2. Click **+ Upload document**
+3. Upload the file: `exercises/sre-agent-knowledge/azure-local-operations.md`
+4. Give it a descriptive name like `Azure Local Operations Runbook`
+5. Wait for ingestion to complete (usually < 1 minute)
+
+The knowledge base tells the agent:
+- How your environment is structured (layers, components)
+- What failure modes are common and how they present
+- What diagnostic commands to reference
+- What remediation patterns are appropriate
+- Specific quirks of the emulated LocalBox environment (memory constraints, custom locations, etc.)
+
+### Step 5 — Configure the Agent Canvas
+
+The **canvas** is where the agent displays its investigation workflow visually:
+
+1. Go to **Canvas settings** (or **Investigation view**)
+2. The canvas shows the agent's reasoning as a graph: trigger → evidence gathering → hypothesis → recommendation
+3. Configure these canvas preferences:
+   - **Auto-expand evidence nodes**: On (shows the actual log/metric snippets the agent found)
+   - **Show resource topology**: On (displays which Azure resources the agent inspected)
+   - **Investigation depth**: Medium (balances speed vs. thoroughness — you can increase to High for complex multi-layer issues)
+
+### Step 6 — Test with a manual prompt
+
+Before wiring up alerts, verify the agent works with a manual question:
+
+1. Open the agent's **Chat / Investigate** interface
+2. Type a test question like: `What is the current health of the AKS cluster localbox-aks in resource group azlocal2?`
+3. The agent should:
+   - Query Azure Resource Graph for the cluster
+   - Check recent alerts or health signals
+   - Reference the knowledge base if relevant
+   - Return a structured finding
+
+If it responds with relevant Azure Local context (not generic cloud advice), your knowledge base is working.
+
+### Why be explicit with the role?
 
 The better you define the agent's operating domain, the better its investigations become. You are effectively telling it:
 
@@ -271,47 +328,85 @@ The better you define the agent's operating domain, the better its investigation
 <details>
 <summary>💡 Hint</summary>
 
-This should mirror the operational pattern from the networking-sre-agent project:
+The connection flow is:
 
-- Monitoring detects the issue
-- Azure Monitor raises an alert
-- The alert triggers the SRE Agent
-- The agent begins investigation with telemetry + knowledge base context
+```
+Alert rule fires → Action Group triggered → Webhook calls sre.azure.com → Agent starts investigation
+```
+
+You configure this from both sides: the Action Group in Azure Monitor, and the alert integration in sre.azure.com.
 
 </details>
 
 <details>
 <summary>🔓 Solution</summary>
 
-**Step 1 — Create an Action Group:**
+### Step 1 — Create an Action Group
 
-Azure Portal → Monitor → Alerts → Action groups → + Create:
-- **Name**: `sre-agent-ag`
-- **Short name**: `sre-ag`
-- **Notifications**: None (the SRE Agent handles this, not email/SMS)
-- **Actions**: None for now — the integration happens in sre.azure.com
+Azure Portal → Monitor → Alerts → **Action groups** → **+ Create**:
 
-**Step 2 — Connect the Action Group to the SRE Agent:**
+| Field | Value |
+|-------|-------|
+| Subscription | Your subscription |
+| Resource group | `azlocal2` |
+| Action group name | `sre-agent-ag` |
+| Display name | `sre-ag` |
+
+On the **Notifications** tab: skip (no email/SMS needed — the SRE Agent handles the response).
+
+On the **Actions** tab: skip for now — the webhook action will be added automatically by sre.azure.com in the next step.
+
+Click **Review + Create** → **Create**.
+
+### Step 2 — Connect the Action Group to the SRE Agent
 
 At [sre.azure.com](https://sre.azure.com):
-1. Go to your agent → **Settings** → **Alert integrations**
-2. Click **+ Add integration** → select **Azure Monitor**
+
+1. Open your agent → **Settings** → **Alert integrations** (or **Triggers**)
+2. Click **+ Add integration** → select **Azure Monitor Alerts**
 3. Select your subscription and the Action Group `sre-agent-ag`
-4. The portal will configure a webhook on the Action Group that notifies the agent when alerts fire
+4. Click **Connect**
 
-**Step 3 — Link the Action Group to your alert rule:**
+What happens behind the scenes:
+- sre.azure.com registers a **webhook action** on your Action Group
+- When the Action Group fires, the webhook sends the alert payload to the agent
+- The agent parses the alert context (resource, severity, description) and begins an investigation
 
-Azure Portal → Monitor → Alerts → Alert rules → `AKS Pod Failures - localbox-aks` → Edit:
-- Under **Actions**, add `sre-agent-ag` as an action group
-- Save
+### Step 3 — Link the Action Group to your alert rule
 
-**Step 4 — Verify the connection:**
+Azure Portal → Monitor → Alerts → **Alert rules** → find `AKS Pod Failures - localbox-aks` → **Edit**:
 
-You can verify by checking that:
-- The Action Group shows a webhook action pointing to the SRE Agent endpoint
-- In sre.azure.com → your agent → **Alert integrations**, the integration shows "Connected"
+1. Go to the **Actions** tab
+2. Click **+ Select action groups**
+3. Select `sre-agent-ag`
+4. Save the rule
 
-Once complete, the end-to-end flow becomes automatic. The SRE Agent no longer waits for you to describe the incident. It is triggered by the same Azure Monitor pipeline your operations team would use in production.
+### Step 4 — Verify end-to-end connectivity
+
+Check these three things:
+
+1. **Action Group has webhook**: Azure Portal → Monitor → Action groups → `sre-agent-ag` → look for a webhook action of type "Azure SRE Agent" or a URL pointing to `sre.azure.com`
+2. **Agent shows integration**: sre.azure.com → your agent → Alert integrations → status shows "Connected" or "Active"
+3. **Alert rule references the Action Group**: Monitor → Alert rules → your rule → Actions tab shows `sre-agent-ag`
+
+### What happens when an alert fires
+
+1. Azure Monitor evaluates your KQL query every 5 minutes
+2. If the condition is met (pods in Failed state > 0), the alert transitions to **Fired**
+3. The Action Group is triggered, sending the webhook to sre.azure.com
+4. The SRE Agent receives the alert payload containing:
+   - Alert name, severity, and description
+   - Affected resource (your AKS cluster)
+   - The time window and signal data
+5. The agent begins an automated investigation:
+   - Queries Azure Resource Graph for resource topology
+   - Pulls recent logs from Log Analytics
+   - Checks Container Insights metrics
+   - Correlates with the uploaded knowledge base
+   - Produces findings visible on the **canvas**
+6. You review the investigation in sre.azure.com → your agent → **Investigations**
+
+Once complete, the end-to-end flow is fully automatic. The SRE Agent no longer waits for you to describe the incident. It is triggered by the same Azure Monitor pipeline your operations team would use in production.
 
 </details>
 
