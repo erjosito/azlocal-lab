@@ -276,7 +276,57 @@ The knowledge base tells the agent:
 - What remediation patterns are appropriate
 - Specific quirks of the emulated LocalBox environment (memory constraints, custom locations, etc.)
 
-### Step 5 — Configure the Agent Canvas
+### Step 5 — Create Subagents for Specialized Domains
+
+The SRE Agent uses **subagents** to delegate specialized investigation tasks. Each subagent focuses on one domain and has its own instructions, tools, and skills. The main agent orchestrates and routes to the appropriate subagent based on the incident type.
+
+Go to **Builder** → **Subagent builder** → **Create** → **Custom Agent**:
+
+**Subagent 1 — Kubernetes Expert:**
+
+| Field | Value |
+|-------|-------|
+| Name | `kubernetes_expert` |
+| Instructions | `You are a Kubernetes specialist for AKS on Azure Local. Diagnose pod failures, scheduling issues, node pressure, and resource exhaustion. Check pod events, describe nodes, and inspect resource requests vs. allocatable capacity.` |
+| Handoff description | `Handles Kubernetes pod, node, and workload troubleshooting` |
+| Tools | `execute_kusto_query`, `azure_cli` |
+
+**Subagent 2 — Infrastructure Expert:**
+
+| Field | Value |
+|-------|-------|
+| Name | `infrastructure_expert` |
+| Instructions | `You are an Azure Local infrastructure specialist. Diagnose cluster health, storage pool degradation, node connectivity, and Arc integration issues. Check cluster nodes, virtual disks, and Arc agent status.` |
+| Handoff description | `Handles Azure Local cluster, storage, and Arc connectivity issues` |
+| Tools | `execute_kusto_query`, `azure_cli` |
+
+**Subagent 3 — Data Services Expert (optional):**
+
+| Field | Value |
+|-------|-------|
+| Name | `database_expert` |
+| Instructions | `You are an Arc-enabled data services specialist. Diagnose data controller deployment issues, SQL MI pod scheduling, custom location errors, and extension failures. Understand that controldb-0 needs 4 GB RAM and SQL MI needs 4 vCPUs + 16 GB. Know that the azure-arc-aks-hci template is required for AKS on Azure Local.` |
+| Handoff description | `Handles Arc data services, SQL MI, and data controller issues` |
+| Tools | `execute_kusto_query`, `azure_cli` |
+
+> ℹ️ **Why subagents?** Without subagents, the main agent tries to be a generalist for everything. With subagents, it can route a "pod crash" alert to the Kubernetes expert and a "storage degraded" alert to the infrastructure expert — each with focused instructions and tools. This produces better investigations.
+
+You can also define subagents as YAML for version control:
+
+```yaml
+name: kubernetes_expert
+system_prompt: |
+  You are a Kubernetes specialist for AKS on Azure Local.
+  Diagnose pod failures, scheduling issues, node pressure,
+  and resource exhaustion.
+handoff_description: Handles Kubernetes pod, node, and workload troubleshooting
+tools:
+  - execute_kusto_query
+  - azure_cli
+enable_skills: true
+```
+
+### Step 6 — Configure the Agent Canvas
 
 The **canvas** is where the agent displays its investigation workflow visually:
 
@@ -287,7 +337,7 @@ The **canvas** is where the agent displays its investigation workflow visually:
    - **Show resource topology**: On (displays which Azure resources the agent inspected)
    - **Investigation depth**: Medium (balances speed vs. thoroughness — you can increase to High for complex multi-layer issues)
 
-### Step 6 — Test with a manual prompt
+### Step 7 — Test with a manual prompt
 
 Before wiring up alerts, verify the agent works with a manual question:
 
