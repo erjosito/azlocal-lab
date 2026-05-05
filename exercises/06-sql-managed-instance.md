@@ -256,6 +256,14 @@ Or from the portal: search **Custom locations** → + Create, select your AKS co
    In the Azure Portal, a new **Azure Arc Data Controller** resource should appear in your resource group.
 
 > **Deployment time:** The data controller takes 5-10 minutes to fully deploy. If pods are stuck in `Pending`, check that your cluster has enough resources (see the sizing note in Prerequisites).
+>
+> **Troubleshooting:** If pods in the `arc` namespace stay in `Pending` for more than a few minutes, investigate with:
+> ```bash
+> kubectl describe pod <pod-name> -n arc
+> ```
+> Look at the **Events** section at the bottom. A common issue is `Insufficient memory` — the data controller pods (especially `controldb`) need significant RAM. To free up resources:
+> - Delete any test workloads from Exercise 3: `kubectl delete deployment nginx && kubectl delete svc nginx`
+> - If that's not enough, scale your node pool: `az aksarc nodepool scale --cluster-name localbox-aks -g azlocal2 --name nodepool1 --node-count 4`
 
 </details>
 
