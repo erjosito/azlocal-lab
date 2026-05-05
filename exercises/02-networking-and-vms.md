@@ -145,8 +145,8 @@ Monitor progress: go to your resource group → find the VM Image resource → c
 <summary>🔍 Hint 1 — Getting the image</summary>
 
 Most Linux distributions publish cloud-ready images in VHD format. For example:
-- Ubuntu: https://cloud-images.ubuntu.com/ (look for `.vhd.zip` files under the release you want)
-- You need the Hyper-V / Azure compatible format (VHD or VHDX)
+- Ubuntu: https://cloud-images.ubuntu.com/ (look for `.vhd.tar.gz` files under the release you want, e.g., `noble/current/`)
+- You need the Hyper-V / Azure compatible format (VHD or VHDX) — extract the `.tar.gz` to get the raw VHD file
 
 Download the image to the LocalBox-Client VM first.
 
