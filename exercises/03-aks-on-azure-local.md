@@ -14,7 +14,8 @@ By the end of this exercise, you will understand:
 - Completed Exercises 0-2
 - Understanding of logical networks (from Exercise 2)
 - Basic familiarity with Kubernetes concepts (pods, deployments, services)
-- An Entra ID group you're a member of (or ability to create one)
+- Entra ID permissions to create a security group (or membership in an existing one)
+- `kubectl` installed on LocalBox-Client (should already be present from the base deployment)
 
 ## Context
 
@@ -39,29 +40,54 @@ The "enabled by Azure Arc" part means the cluster is registered with Azure and c
 
 **Goal:** Understand what's needed before deploying AKS and prepare the environment.
 
+AKS on Azure Local requires several things to be in place before you can create a cluster. Your job is to figure out what those are and set them up.
+
 **What you need to figure out:**
-1. What network will AKS use? (Hint: it's different from the VM network in Exercise 2)
-2. What Azure Arc extension enables AKS? Is it already installed?
-3. You need an Entra ID group for RBAC — do you have one or need to create one?
+1. What network will AKS use? Does it already exist, or do you need to create a logical network for it?
+2. What Azure Arc extension enables AKS? Is it already installed on your cluster?
+3. AKS on Azure Local uses Azure RBAC gated by Entra ID group membership — do you have a group, or do you need to create one?
 
 <details>
 <summary>🔍 Hint 1 — Network</summary>
 
-AKS uses a dedicated network: **10.10.0.0/24 on VLAN 110**. This is separate from the VM network (192.168.200.0/24 on VLAN 200). The separation prevents AKS internal traffic from interfering with VM traffic.
+AKS needs a **dedicated logical network** that is separate from the VM network you created in Exercise 2. In LocalBox, AKS uses:
+- **Subnet:** 10.10.0.0/24
+- **VLAN:** 110
+- **Gateway:** 10.10.0.1
+- **DNS:** 172.16.0.1 (the domain controller)
+
+You need to create this logical network before deploying the AKS cluster. Use the Azure portal just like you did in Exercise 2:
+
+1. Go to your Azure Local cluster resource → **Logical networks** → **+ Create**
+2. Name it something descriptive (e.g., `aks-network`)
+3. Use **Static** IP allocation
+4. Configure the subnet: `10.10.0.0/24`, gateway `10.10.0.1`, DNS server `172.16.0.1`
+5. Add an IP pool (e.g., `10.10.0.10` to `10.10.0.200`) for Kubernetes nodes and services
+6. Set the VLAN ID to **110**
 
 </details>
 
 <details>
 <summary>🔍 Hint 2 — Arc Extension</summary>
 
-Go to the Azure Portal → Custom Location `jumpstart` → Arc-enabled services. You should see `hybridaksextension` already listed. This extension was deployed as part of the Azure Local cluster setup.
+Go to the Azure Portal → your Azure Local cluster → **Extensions**. You should see `hybridaksextension` (or `aksarc`) already listed. This extension was deployed automatically as part of the Azure Local cluster setup — you don't need to install it manually.
+
+You can also check from the Custom Location resource: navigate to `jumpstart-cl` → **Enabled resource types** and confirm that Kubernetes-related resource types are available.
 
 </details>
 
 <details>
 <summary>🔍 Hint 3 — Entra ID Group</summary>
 
-AKS on Azure Local uses Azure RBAC for cluster access, gated by Entra ID group membership. Create a group in the Entra ID portal (portal.azure.com → Microsoft Entra ID → Groups → New group) and add yourself as a member. Copy the group's Object ID — you'll need it.
+AKS on Azure Local uses Azure RBAC for cluster access, gated by Entra ID group membership. You need a security group with yourself as a member:
+
+1. Go to [portal.azure.com](https://portal.azure.com) → **Microsoft Entra ID** → **Groups** → **New group**
+2. Group type: **Security**
+3. Name it (e.g., `AKS Admins`)
+4. Add yourself as a **Member**
+5. Create the group and copy its **Object ID** — you'll need this when creating the cluster
+
+> **Note:** If your tenant doesn't allow you to create groups, ask your administrator to create one and add you.
 
 </details>
 
@@ -69,43 +95,91 @@ AKS on Azure Local uses Azure RBAC for cluster access, gated by Entra ID group m
 
 ## Challenge 2: Deploy an AKS Cluster
 
-**Goal:** Deploy an AKS workload cluster on your Azure Local instance.
+**Goal:** Deploy an AKS workload cluster on your Azure Local instance using the Azure portal.
+
+Now that you have the prerequisites in place (logical network, Entra ID group, Arc extension), create the AKS cluster from the Azure portal.
 
 **What you need to figure out:**
-- Where is the deployment script on LocalBox-Client?
-- What parameter needs to be configured before running it?
-- How to monitor the deployment progress
+- Where in the portal do you create an AKS cluster on Azure Local? (Hint: it's not the regular AKS service)
+- What settings are required? (network, node count, node VM size, RBAC group)
+- How long does deployment take and how to monitor it?
 
 <details>
-<summary>🔍 Hint 1</summary>
+<summary>🔍 Hint 1 — Where to create the cluster</summary>
 
-On LocalBox-Client, look in `C:\LocalBox` for `Configure-AksWorkloadCluster.ps1`. Open it in VS Code before running it — there's a parameter you need to uncomment and set.
+There are two paths:
+
+- **From the Azure Local cluster resource:** Go to your cluster → **Virtual machines and AKS** → **AKS clusters** tab → **+ Create AKS cluster**
+- **From the Kubernetes services page:** Go to **Kubernetes services** in the portal → **+ Create** → Select **Azure Kubernetes Service Arc** (not the regular AKS)
+
+Both paths lead to the same creation wizard.
 
 </details>
 
 <details>
-<summary>🔍 Hint 2</summary>
+<summary>🔍 Hint 2 — Key settings</summary>
 
-The script has a commented-out line (around line 6) for `$aadgroupID`. Uncomment it and paste in the Object ID of your Entra ID group.
+In the creation wizard:
+
+- **Basics:**
+  - Select your subscription and resource group (`azlocal2`)
+  - Cluster name (e.g., `aks-localbox`)
+  - Custom location: `jumpstart-cl`
+  - Kubernetes version: pick the latest available
+
+- **Node pools:**
+  - The default node pool will ask for VM size — start small (e.g., `Standard_A4_v2`, 4 vCPUs, 8 GB)
+  - Node count: 1-2 (this is a lab, conserve resources)
+
+- **Networking:**
+  - Select the logical network you created in Challenge 1 (e.g., `aks-network`)
+  - Leave the pod and service CIDRs at defaults unless they conflict
+
+- **Access:**
+  - Authentication: **Microsoft Entra ID with Kubernetes RBAC**
+  - Admin Group Object IDs: paste the Object ID of the Entra ID group you created
 
 </details>
 
 <details>
 <summary>⚠️ Spoiler: Full Solution</summary>
 
-1. RDP into LocalBox-Client
-2. Open `C:\LocalBox\Configure-AksWorkloadCluster.ps1` in VS Code
-3. Find the commented line: `# $aadgroupID = "<your-entra-group-object-id>"`
-4. Uncomment it and replace the placeholder with your group's Object ID
-5. Save (Ctrl+S)
-6. Click the Run button in VS Code (▶️)
-7. Wait for completion — look for `"currentState": "Succeeded"`
-8. Verify in Azure Portal: a new resource `localbox-aks` appears in your resource group
+1. **Create the logical network** (if not done already):
+   - Azure portal → your Azure Local cluster → Logical networks → + Create
+   - Name: `aks-network`
+   - Static IP allocation
+   - Address prefix: `10.10.0.0/24`
+   - Gateway: `10.10.0.1`
+   - DNS: `172.16.0.1`
+   - IP pool: `10.10.0.10` – `10.10.0.200`
+   - VLAN: `110`
+   - Review + Create
 
-The script creates:
-- A virtual network resource for AKS (mapping to the 10.10.0.0/24 subnet)
-- An AKS cluster with Arc connectivity
-- RBAC configuration tied to your Entra ID group
+2. **Create the Entra ID group** (if not done already):
+   - portal.azure.com → Microsoft Entra ID → Groups → New group
+   - Type: Security, Name: `AKS Admins`
+   - Add yourself as member → Create
+   - Copy the Object ID
+
+3. **Create the AKS cluster:**
+   - Azure portal → Kubernetes services → + Create → **Azure Kubernetes Service Arc**
+   - Subscription: your subscription
+   - Resource group: `azlocal2`
+   - Cluster name: `aks-localbox`
+   - Custom location: `jumpstart-cl`
+   - Kubernetes version: latest available (e.g., 1.28.x or 1.29.x)
+   - Node pool: `Standard_A4_v2`, node count: 2
+   - Networking: select `aks-network`
+   - Access: Microsoft Entra ID + Kubernetes RBAC
+   - Admin Group Object IDs: paste your group's Object ID
+   - Review + Create
+
+4. **Monitor deployment:**
+   - The deployment takes 15-30 minutes
+   - Watch progress in Deployments (resource group → Deployments)
+   - When complete, the cluster appears as a **Kubernetes - Azure Arc** resource
+
+> **Alternative — Script method:** If you prefer CLI, LocalBox-Client has `C:\LocalBox\Configure-AksWorkloadCluster.ps1`. Edit the `$aadgroupID` variable (around line 6) with your group's Object ID, then run it in VS Code. The script automates all the steps above.
 
 </details>
 

@@ -147,6 +147,7 @@ The LocalBox VM is an **E32s_v6** (32 vCPUs, 256 GB RAM). Estimated costs:
 - Azure CLI 2.65.0+
 - 32 ESv6-series vCPUs quota in your target region
 - ~4-5 hours for initial deployment to complete
+- **Entra ID permissions**: ability to create security groups in your tenant (required for Exercise 3 — AKS RBAC). Users with the *Groups Administrator* or *Global Administrator* role, or with the default "users can create security groups" tenant setting enabled, will have sufficient access.
 
 ## Troubleshooting
 
