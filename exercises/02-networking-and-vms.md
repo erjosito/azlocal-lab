@@ -144,13 +144,23 @@ Monitor progress: go to your resource group → find the VM Image resource → c
 <details>
 <summary>🔍 Hint 1 — Getting the image</summary>
 
-Most Linux distributions publish cloud-ready images in VHD format. For example:
-- Ubuntu: https://cloud-images.ubuntu.com/ (look for `.vhd.tar.gz` files under the release you want, e.g., `noble/current/`)
-- You need the Hyper-V / Azure compatible format (VHD or VHDX) — extract the `.tar.gz` to get the raw VHD file
+Most Linux distributions publish cloud-ready images in VHD format. However, you must ensure the image supports **Gen2 (UEFI)** boot — Azure Local creates Gen2 VMs by default and Gen1 (MBR/BIOS) images will fail with "corrupted and unreadable" errors.
 
-> ⚠️ **Important: Gen1 vs Gen2!** Azure Local typically creates Gen2 (UEFI) VMs. Standard Ubuntu "azure" images (e.g., `noble-server-cloudimg-amd64-azure.vhd.tar.gz`) are Gen1 (MBR/BIOS) and will fail with "corrupted and unreadable" errors if used with a Gen2 VM. Download the **EFI variant** instead — look for files containing `efi` in the name, e.g., `noble-server-cloudimg-amd64-azure.efi.vhd.tar.gz`. Alternatively, select **Generation 1** when registering the image.
+**Recommended: Rocky Linux 9** (proven to work as Gen2 on Azure Local):
+- URL: `https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-Azure-Base.latest.x86_64.vhdfixed.xz`
+- ~493 MB compressed (xz format), needs decompression with 7-Zip
+- Azure-specific build = Gen2/UEFI, fixed-size VHD (exactly what Azure Local expects)
 
-Download the image to the LocalBox-Client VM first.
+**Avoid:** Ubuntu "azure" images (`noble-server-cloudimg-amd64-azure.vhd.tar.gz`) — these are Gen1 (MBR/BIOS) only and no EFI variant is available.
+
+Download the image to LocalBox-Client first, then decompress:
+```powershell
+# Download Rocky Linux 9 Azure VHD
+Invoke-WebRequest -Uri "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-Azure-Base.latest.x86_64.vhdfixed.xz" -OutFile "C:\Temp\rocky9.vhd.xz"
+
+# Decompress with 7-Zip
+& "C:\Program Files\7-Zip\7z.exe" x "C:\Temp\rocky9.vhd.xz" -o"C:\Temp\"
+```
 
 </details>
 
@@ -173,8 +183,16 @@ Copy-Item "C:\path\to\image.vhd" "Z:\"
 
 **Step 1 — Download and extract the image on LocalBox-Client:**
 
-1. Download a Linux cloud image (e.g., Ubuntu 24.04 VHD) from https://cloud-images.ubuntu.com/noble/current/
-2. Extract the `.tar.gz` to get the raw `.vhd` file
+```powershell
+# Create a temp directory
+New-Item -ItemType Directory -Path "C:\Temp" -Force
+
+# Download Rocky Linux 9 Azure VHD (~493 MB)
+Invoke-WebRequest -Uri "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-Azure-Base.latest.x86_64.vhdfixed.xz" -OutFile "C:\Temp\rocky9.vhd.xz"
+
+# Decompress with 7-Zip (produces Rocky-9-Azure-Base.latest.x86_64.vhdfixed)
+& "C:\Program Files\7-Zip\7z.exe" x "C:\Temp\rocky9.vhd.xz" -o"C:\Temp\"
+```
 
 **Step 2 — Copy the VHD to Cluster Shared Volume:**
 
@@ -184,16 +202,17 @@ LocalBox-Client is not domain-joined, so you need explicit credentials to access
 # Map a drive to the cluster shared volume (UNC admin share — for copying only)
 net use Z: \\AzLHOST1\C$\ClusterStorage\UserStorage_1 /user:jumpstart\Administrator <your-deployment-password>
 
-# Copy the VHD (adjust the source path to where you extracted it)
-Copy-Item "C:\Users\Administrator\Downloads\noble-server-cloudimg-amd64.vhd" "Z:\"
+# Create an images directory and copy the VHD
+New-Item -ItemType Directory -Path "Z:\images" -Force
+Copy-Item "C:\Temp\Rocky-9-Azure-Base.latest.x86_64.vhdfixed" "Z:\images\rocky9.vhd"
 ```
 
 **Step 3 — Register the image in the Azure Portal:**
 
 1. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
-2. Provide the **local CSV path** (not the UNC path!): `C:\ClusterStorage\UserStorage_1\noble-server-cloudimg-amd64.vhd`
-3. Set OS type = Linux, give it a name (e.g., `ubuntu-24.04`)
-4. Select the `jumpstart` custom location
+2. Provide the **local CSV path** (not the UNC path!): `C:\ClusterStorage\UserStorage_1\images\rocky9.vhd`
+3. Set OS type = **Linux**, give it a name (e.g., `rockylinux-9`)
+4. Select the `jumpstart-cl` custom location
 5. Click **Review + Create** → **Create**
 
 > 💡 **Tip:** Custom images from local storage import much faster than marketplace images. A marketplace Windows Server image can take over an hour to download, while a local VHD that's already on the CSV registers in just a few minutes.
