@@ -395,7 +395,7 @@ if ($errors) {
                                     $destPort = $rule.destinationPorts -join ","
                                     $translAddr = $rule.translatedAddress
                                     $translPort = $rule.translatedPort
-                                    Write-Host "        $ruleName: $srcAddrs -> :$destPort → $translAddr`:$translPort" -ForegroundColor Green
+                                    Write-Host "        ${ruleName}: ${srcAddrs} -> :${destPort} → ${translAddr}:${translPort}" -ForegroundColor Green
                                 } elseif ($rcType -eq "FirewallPolicyFilterRuleCollection") {
                                     # Network or Application rules
                                     if ($rule.protocols) {
@@ -404,13 +404,13 @@ if ($errors) {
                                         $destAddrs = if ($rule.destinationAddresses -is [array]) { $rule.destinationAddresses -join "," } else { $rule.destinationAddresses }
                                         $ports = if ($rule.destinationPorts -is [array]) { $rule.destinationPorts -join "," } else { $rule.destinationPorts }
                                         $protos = if ($rule.protocols -is [array]) { $rule.protocols -join "," } else { $rule.protocols }
-                                        Write-Host "        $ruleName: $srcAddrs -> $destAddrs :$ports ($protos)" -ForegroundColor Green
+                                        Write-Host "        ${ruleName}: ${srcAddrs} -> ${destAddrs} :${ports} (${protos})" -ForegroundColor Green
                                     } else {
                                         # Application rule
                                         $srcAddrs = if ($rule.sourceAddresses -is [array]) { $rule.sourceAddresses -join "," } else { $rule.sourceAddresses }
                                         $fqdns = if ($rule.targetFqdns -is [array]) { $rule.targetFqdns -join "," } else { $rule.targetFqdns }
-                                        $protos = $rule.protocols | ForEach-Object { $_.protocolType + ":" + ($_.port -join ",") } | Join-String -Separator "/"
-                                        Write-Host "        $ruleName: $srcAddrs -> $fqdns ($protos)" -ForegroundColor Green
+                                        $protos = $rule.protocols | ForEach-Object { "$($_.protocolType):$($_.port -join ',')" } | Join-String -Separator "/"
+                                        Write-Host "        ${ruleName}: ${srcAddrs} -> ${fqdns} (${protos})" -ForegroundColor Green
                                     }
                                 }
                             }
