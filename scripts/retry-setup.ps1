@@ -359,6 +359,28 @@ if ($errors) {
     if ($fw -and $fw.name) {
         $color = if ($fw.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
         Write-Host "Azure Firewall: $($fw.name) — $($fw.provisioningState)" -ForegroundColor $color
+
+        # Public IP and DNAT
+        $fwPip = az network public-ip show -g $ResourceGroup -n "$($fw.name)-pip" --query "ipAddress" -o tsv 2>$null
+        if ($fwPip) {
+            Write-Host "  Public IP: $fwPip" -ForegroundColor White
+        }
+        $natRcg = az network firewall policy rule-collection-group show -g $ResourceGroup `
+            --policy-name "$($fw.name)-Policy" -n "LocalBox-NAT-RCG" --query "id" -o tsv 2>$null
+        if ($natRcg) {
+            Write-Host "  DNAT rule (RDP): Configured" -ForegroundColor Green
+        } else {
+            Write-Host "  DNAT rule (RDP): Not configured" -ForegroundColor DarkGray
+        }
+
+        # Route table on workload subnet
+        $subnetRt = az network vnet subnet show -g $ResourceGroup --vnet-name "LocalBox-VNet" `
+            -n "LocalBox-Subnet" --query "routeTable.id" -o tsv 2>$null
+        if ($subnetRt) {
+            Write-Host "  Route table on LocalBox-Subnet: Yes (traffic via firewall)" -ForegroundColor Green
+        } else {
+            Write-Host "  Route table on LocalBox-Subnet: No (direct egress)" -ForegroundColor Yellow
+        }
     }
 
     Write-Host ""
