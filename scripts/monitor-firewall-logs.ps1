@@ -57,7 +57,14 @@ function Invoke-AzJson {
         return $null
     }
 
-    return $text | ConvertFrom-Json -Depth 100
+    try {
+        return $text | ConvertFrom-Json -Depth 100
+    }
+    catch {
+        # AzureDiagnostics can return columns with mixed casing (e.g. SourceIP and SourceIp)
+        # which causes ConvertFrom-Json to fail. Fall back to -AsHashtable.
+        return $text | ConvertFrom-Json -Depth 100 -AsHashtable
+    }
 }
 
 function Invoke-WorkspaceQuery {

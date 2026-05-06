@@ -90,11 +90,11 @@ In the Azure Portal, navigate to your resource group and look at the Azure Local
 
 The logical network needs these settings:
 - **Name:** something descriptive (e.g., `vm-network-200`)
-- **VM switch name:** `ConvergedSwitch(oob-hci)`
+- **VM switch name:** `ConvergedSwitch(compute_management)` — you can discover this by running `Get-VMSwitch` on a cluster node
 - **Subnet:** 192.168.200.0/24
 - **Gateway:** 192.168.200.1
 - **IP allocation method:** Static
-- **IP pool:** 192.168.200.10 – 192.168.200.252
+- **IP pool:** 192.168.200.100 – 192.168.200.199
 - **VLAN ID:** 200
 - **DNS Server:** 192.168.1.254 (the domain controller)
 
@@ -112,15 +112,15 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
 3. Click **+ Create**
 4. Fill in:
    - **Name:** `vm-network-200`
-   - **VM switch name:** `ConvergedSwitch(oob-hci)`
+   - **VM switch name:** `ConvergedSwitch(compute_management)`
    - **IP address allocation method:** Static
    - Add a subnet with:
      - Address prefix: `192.168.200.0/24`
      - Gateway: `192.168.200.1`
      - VLAN: `200`
      - DNS servers: `192.168.1.254`
-     - IP pool start: `192.168.200.10`
-     - IP pool end: `192.168.200.252`
+     - IP pool start: `192.168.200.100`
+     - IP pool end: `192.168.200.199`
 5. Click **Review + Create** → **Create**
 6. Verify: the logical network should appear in your resource group within a minute
 
@@ -132,47 +132,84 @@ Using static IP allocation (with a defined pool) ensures VMs get predictable add
 
 ---
 
-## Challenge 2: Download a VM Image from Azure Marketplace
+## Challenge 2: Create a VM Image from a Local VHD
 
-**Goal:** Before creating a VM, you need an OS image. Download a Windows Server image from Azure Marketplace to your Azure Local cluster.
+**Goal:** Before creating a VM, you need an OS image registered in Azure Local. In this emulated environment, the Azure Marketplace download feature doesn't work reliably (the Edge Marketplace service isn't reachable). Instead, you'll register an image from a VHD that already exists on cluster storage.
 
 **What you need to figure out:**
-- Where in the Azure Portal can you manage VM images for Azure Local?
-- How do you download a marketplace image to the local cluster?
-- How long does it take, and how do you monitor progress?
+- What VHD files already exist on the cluster's shared storage?
+- How do you register a local VHD as a VM image in Azure Local?
+- What's the difference between a marketplace image and a local path image?
 
 > 💡 **Think about it:** Why can't Azure Local VMs just use Azure Marketplace images directly like regular Azure VMs? What's different about the compute infrastructure?
 
-> ⏱️ **Tip:** Image downloads can be slow (30-60 minutes) and sometimes fail in the emulated environment. Start **both** the Windows marketplace image (this challenge) and the Linux custom image (Challenge 2b) in parallel so you're not blocked waiting for one.
+> 💡 **Background:** The LocalBox deployment pre-provisions a CBL-Mariner Linux VHD on cluster storage for AKS node images. You can reuse this VHD to create a general-purpose Linux VM image — or you can bring your own VHD (see Challenge 2b for a custom Linux image approach).
 
 <details>
-<summary>🔍 Hint</summary>
+<summary>🔍 Hint 1 — Finding existing VHDs</summary>
 
-Navigate to your cluster resource → **VM Images** blade. The "Add VM image" dropdown has an "From Azure Marketplace" option.
+The cluster stores VHDs on Cluster Shared Volumes (CSVs). You can discover them by running commands on the HCI nodes. From LocalBox-Client (RDP), open PowerShell and connect to a cluster node:
 
-Choose a smaller image (like Windows Server 2025 Core - Smalldisk) to reduce download time. Note that only Windows images are available in the marketplace for Azure Local — for Linux you'd need a custom image (see Challenge 2b below).
+```powershell
+# List CSVs
+Invoke-Command -VMName AzLHOST1 -Credential (Get-Credential jumpstart\Administrator) -ScriptBlock {
+    Get-ChildItem 'C:\ClusterStorage' -Recurse -Include *.vhdx | Select-Object FullName, @{N='SizeGB';E={[math]::Round($_.Length/1GB,1)}}
+}
+```
+
+Look for a CBL-Mariner VHDX in `UserStorage_1` — this is the AKS base image that LocalBox pre-downloads during deployment.
+
+</details>
+
+<details>
+<summary>🔍 Hint 2 — Registering the image</summary>
+
+You can register a VHD from a local path using either:
+- **Azure Portal:** Cluster resource → VM Images → Add VM image → From local share → provide the CSV path
+- **Azure CLI:** `az stack-hci-vm image create --image-path <path-on-cluster> --os-type Linux ...`
+
+The key is using the **local CSV path** (e.g., `C:\ClusterStorage\UserStorage_1\...`), NOT a UNC path. The CSV is mounted identically on all cluster nodes.
 
 </details>
 
 <details>
 <summary>⚠️ Spoiler: Full Solution</summary>
 
-1. Azure Portal → Your resource group → Click the `localboxcluster` resource
-2. Left menu → **VM Images**
-3. Click **Add VM image** → **From Azure Marketplace**
-4. Select an image (e.g., "Windows Server 2025 Datacenter: Azure Edition - Smalldisk")
-5. Give it a name, select the `jumpstart` custom location
-6. Leave storage path as "Choose automatically"
-7. Click **Review + Create** → **Create**
+**Option A — Azure Portal:**
 
-Monitor progress: go to your resource group → find the VM Image resource → check Properties for download status.
+1. Azure Portal → cluster resource → **VM Images** → **Add VM image** → **From local share**
+2. Provide the local CSV path: `C:\ClusterStorage\UserStorage_1\<subfolder>\linux-cblmariner-0.10.9.10205.vhdx`
+   (The subfolder name is auto-generated — check via the hint above)
+3. Set OS type = **Linux**, name it (e.g., `linux-mariner`)
+4. Select the `jumpstart` custom location
+5. Click **Review + Create** → **Create**
 
-> ⚠️ **Image downloads can fail or take a very long time** (30-60+ minutes). The marketplace download depends on cluster storage performance and internet bandwidth through the NAT chain. If the deployment shows "Failed":
-> - Check if the image resource actually exists in the resource group (it may have retried internally and succeeded)
-> - Try again — transient failures are common in the emulated environment
-> - **Recommended:** Start the Linux custom image download (Challenge 2b) in parallel so you're not blocked waiting for a single image
+**Option B — Azure CLI (from LocalBox-Client):**
 
-**Why can't Azure Local use images directly?** Because the cluster isn't in an Azure datacenter. The image needs to be physically downloaded to the cluster's local storage before VMs can use it. This is fundamentally different from Azure VMs, which can access marketplace images instantly from Microsoft's storage infrastructure.
+```powershell
+# Get context info
+$rg = "azlocal"
+$customLocation = (az customlocation list -g $rg --query "[0].id" -o tsv)
+$location = (az stack-hci cluster list -g $rg --query "[0].location" -o tsv)
+$storagePath = (az stack-hci-vm storagepath list -g $rg --query "[0].id" -o tsv)
+
+# Find the VHD path (run on cluster node to get the exact subfolder name)
+# Example: C:\ClusterStorage\UserStorage_1\e17597df2d246ec\linux-cblmariner-0.10.9.10205.vhdx
+
+# Register the image
+az stack-hci-vm image create `
+    --resource-group $rg `
+    --name linux-mariner `
+    --location $location `
+    --custom-location $customLocation `
+    --os-type Linux `
+    --image-path "C:\ClusterStorage\UserStorage_1\<subfolder>\linux-cblmariner-0.10.9.10205.vhdx" `
+    --storage-path-id $storagePath
+```
+
+> 💡 **Why does this work?** The `--image-path` parameter tells the MOC operator (running on the cluster nodes) to register an existing VHD from local storage. No download is needed — the file is already on the CSV. This is much faster than a marketplace download and works reliably in the emulated environment.
+
+> **Why can't Azure Local use marketplace images directly?** Because the cluster isn't in an Azure datacenter. In production, the Edge Marketplace service downloads images to local storage. In LocalBox's emulated environment, this service isn't fully functional, so we use the local path approach instead.
 
 </details>
 

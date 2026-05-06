@@ -60,24 +60,38 @@ try {
     $location = $context.ClusterLocation
     $customLocationId = $context.CustomLocation.id
     $logicalNetworkName = 'vm-network-200'
-    $imageName = 'win2022-marketplace'
+    $imageName = 'linux-mariner'
     $vmName = 'azlocal-vm01'
     $computerName = 'AZLOCALVM01'
     $nicName = "$vmName-nic"
-    $vmIpAddress = '192.168.200.20'
+    $vmIpAddress = '192.168.200.100'
     $adminUserName = 'azurelocaladmin'
 
     Write-Step -What 'Checking whether the VM logical network already exists.' -Why 'Logical networks are the Azure Local equivalent of declaring a real VLAN-backed subnet that VMs can attach to.'
     $logicalNetwork = Get-LogicalNetwork -ResourceGroup $ResourceGroup -PreferredName $logicalNetworkName -AddressPrefix '192.168.200.0/24'
     if (-not $logicalNetwork) {
-        Write-Info 'Creating logical network 192.168.200.0/24 on VLAN 200 with static IP allocation.'
+        # Discover the VM switch name from the cluster node
+        Write-Info 'Discovering VM switch name from cluster node...'
+        $switchName = 'ConvergedSwitch(compute_management)'  # Default for LocalBox
+        try {
+            $switchResult = Invoke-NestedHostCommand -ResourceGroup $ResourceGroup -ComputerName 'AzLHOST1' -Password $NestedAdminPassword -ScriptText 'Get-VMSwitch | Where-Object SwitchType -eq "External" | Select-Object -ExpandProperty Name'
+            if ($switchResult -and $switchResult.Trim()) {
+                $switchName = $switchResult.Trim()
+                Write-Info "Discovered VM switch: $switchName"
+            }
+        }
+        catch {
+            Write-Warn "Could not discover switch name, using default: $switchName"
+        }
+
+        Write-Info "Creating logical network 192.168.200.0/24 on VLAN 200 with static IP allocation."
         $null = Invoke-AzJson -Arguments @(
             'stack-hci-vm', 'network', 'lnet', 'create',
             '--resource-group', $ResourceGroup,
             '--name', $logicalNetworkName,
             '--location', $location,
             '--custom-location', $customLocationId,
-            '--vm-switch-name', 'ConvergedSwitch(oob-hci)',
+            '--vm-switch-name', $switchName,
             '--address-prefixes', '192.168.200.0/24',
             '--gateway', '192.168.200.1',
             '--dns-servers', '192.168.1.254',
@@ -98,13 +112,22 @@ try {
     $storagePath = Get-StackHciStoragePath -ResourceGroup $ResourceGroup
     Write-Success "Using storage path '$($storagePath.name)'."
 
-    Write-Step -What 'Checking whether the Windows Server 2022 marketplace image is already present.' -Why 'Images are reusable cluster assets, so idempotent automation should create them once and reuse them for later VMs.'
+    Write-Step -What 'Checking whether a Linux VM image is already registered.' -Why 'Images are reusable cluster assets. In LocalBox, the marketplace download does not work — we use a pre-existing CBL-Mariner VHD from cluster storage instead.'
     $image = @(Invoke-AzJson -Arguments @('stack-hci-vm', 'image', 'list', '--resource-group', $ResourceGroup)) |
         Where-Object { $_.name -eq $imageName } |
         Select-Object -First 1
 
     if (-not $image) {
-        Write-Info 'Creating a marketplace-backed gallery image for Windows Server 2022 Datacenter.'
+        Write-Info 'Discovering VHD files on cluster storage...'
+        $vhdResult = Invoke-NestedHostCommand -ResourceGroup $ResourceGroup -ComputerName 'AzLHOST1' -Password $NestedAdminPassword -ScriptText "Get-ChildItem 'C:\ClusterStorage' -Recurse -Include *.vhdx -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName"
+        $vhdPath = ($vhdResult -split "`n" | Where-Object { $_ -match 'linux-cblmariner' -or $_ -match '\.vhdx$' } | Select-Object -First 1).Trim()
+
+        if (-not $vhdPath) {
+            throw 'No VHD file found on cluster storage. The cluster may not have completed its initial setup.'
+        }
+        Write-Info "Found VHD: $vhdPath"
+        Write-Info "Registering image from local cluster storage path (no marketplace download needed)."
+
         $null = Invoke-AzJson -Arguments @(
             'stack-hci-vm', 'image', 'create',
             '--resource-group', $ResourceGroup,
@@ -112,16 +135,13 @@ try {
             '--location', $location,
             '--custom-location', $customLocationId,
             '--storage-path-id', $storagePath.id,
-            '--os-type', 'Windows',
-            '--publisher', 'MicrosoftWindowsServer',
-            '--offer', 'WindowsServer',
-            '--sku', '2022-datacenter',
-            '--version', 'latest'
+            '--os-type', 'Linux',
+            '--image-path', $vhdPath
         )
         $image = @(Invoke-AzJson -Arguments @('stack-hci-vm', 'image', 'list', '--resource-group', $ResourceGroup)) |
             Where-Object { $_.name -eq $imageName } |
             Select-Object -First 1
-        Write-Success "Image '$imageName' is now available for VM deployment."
+        Write-Success "Image '$imageName' registered from local VHD."
     }
     else {
         Write-Success "Image '$imageName' already exists, so the script will reuse it."
