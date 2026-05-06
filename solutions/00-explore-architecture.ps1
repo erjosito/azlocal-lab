@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory)]
-    [string]$ResourceGroup
+    [string]$ResourceGroup,
+
+    [string]$Password = 'ArcPassword123!!'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -156,6 +158,80 @@ Nested networks
     Write-Host '• Custom Location: placement abstraction for deploying Azure resources onto the cluster.' -ForegroundColor Yellow
     Write-Host '• Arc Resource Bridge: translation layer between Azure Resource Manager and local infrastructure.' -ForegroundColor Yellow
     Write-Host '• Azure VNet / NSG / NAT Gateway: the cloud network shell around the lab environment.' -ForegroundColor Yellow
+
+    # =============================================
+    # NESTED EXPLORATION - Virtualization & Networking
+    # =============================================
+
+    Write-Step -What 'Exploring Hyper-V virtualization and networking on LocalBox-Client.' -Why 'This shows how the entire Azure Local lab is running as nested VMs inside a single Azure VM.'
+
+    # Batch all LocalBox-Client queries into a single run-command to avoid conflicts
+    $localBoxScript = @'
+$sections = @()
+$sections += "--- NESTED VMs ---"
+$sections += (Get-VM | Format-Table Name, State, CPUUsage, @{N='MemoryGB';E={[math]::Round($_.MemoryAssigned/1GB,1)}}, Uptime -AutoSize | Out-String)
+$sections += "--- VIRTUAL SWITCHES ---"
+$sections += (Get-VMSwitch | Format-Table Name, SwitchType, NetAdapterInterfaceDescription -AutoSize | Out-String)
+$sections += "--- HOST IP CONFIGURATION ---"
+$sections += (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "Loopback*" } | Sort-Object InterfaceAlias | Format-Table InterfaceAlias, IPAddress, PrefixLength -AutoSize | Out-String)
+$sections += "--- HOST ROUTES (non-link-local) ---"
+$sections += (Get-NetRoute -AddressFamily IPv4 | Where-Object { $_.DestinationPrefix -ne '255.255.255.255/32' -and $_.NextHop -ne '0.0.0.0' } | Sort-Object DestinationPrefix | Format-Table DestinationPrefix, NextHop, @{N='Interface';E={$_.InterfaceAlias}} -AutoSize | Out-String)
+$sections -join "`n"
+'@
+
+    Write-Command -Command 'Get-VM; Get-VMSwitch; Get-NetIPAddress; Get-NetRoute' -Where 'LocalBox-Client'
+    $localBoxOutput = Invoke-LocalBoxCommand -ResourceGroup $ResourceGroup -ScriptText $localBoxScript
+    if ($localBoxOutput) { Write-Host $localBoxOutput } else { Write-Warn 'No output received from LocalBox-Client run-command.' }
+    Write-Info 'AzLHOST1/2 are the Azure Local cluster nodes. AzLMGMT hosts infrastructure VMs (DC, Router).'
+    Write-Info 'The virtual switches isolate traffic between management, VM, and storage VLANs.'
+
+    Write-Step -What 'Exploring AzLHOST1 — Azure Local cluster node.' -Why 'The cluster nodes run Storage Spaces Direct and host workload VMs.'
+
+    # Batch cluster queries into one nested command
+    $clusterScript = @'
+$sections = @()
+$sections += "--- CLUSTER NODES ---"
+$sections += (Get-ClusterNode | Format-Table Name, State -AutoSize | Out-String)
+$sections += "--- CLUSTER NETWORKS ---"
+$sections += (Get-ClusterNetwork | Format-Table Name, Address, AddressMask, Role -AutoSize | Out-String)
+$sections += "--- STORAGE POOLS (non-primordial) ---"
+$sections += (Get-StoragePool | Where-Object { $_.IsPrimordial -eq $false } | Format-Table FriendlyName, OperationalStatus, @{N='SizeGB';E={[math]::Round($_.Size/1GB)}} -AutoSize | Out-String)
+$sections += "--- CLUSTER SHARED VOLUMES ---"
+$sections += (Get-ClusterSharedVolume | Format-Table Name, State -AutoSize | Out-String)
+$sections -join "`n"
+'@
+
+    Write-Command -Command 'Get-ClusterNode; Get-ClusterNetwork; Get-StoragePool; Get-ClusterSharedVolume' -Where 'AzLHOST1'
+    $clusterOutput = Invoke-NestedHostCommand -ResourceGroup $ResourceGroup -ComputerName 'AzLHOST1' -Password $Password -ScriptText $clusterScript
+    if ($clusterOutput) { Write-Host $clusterOutput } else { Write-Warn 'No output received from AzLHOST1.' }
+    Write-Info 'Both nodes should be Up. Storage Spaces Direct pools local disks into shared resilient storage.'
+
+    Write-Step -What 'Exploring AzLMGMT and Vm-Router — management infrastructure.' -Why 'AzLMGMT hosts the domain controller and router. The router interconnects all VLANs.'
+
+    # Batch AzLMGMT + Vm-Router queries
+    $mgmtScript = @'
+$sections = @()
+$sections += "--- VMs ON AzLMGMT ---"
+$sections += (Get-VM | Format-Table Name, State -AutoSize | Out-String)
+$sections += "--- Vm-Router IP ADDRESSES ---"
+$innerCred = [pscredential]::new('jumpstart\Administrator', (ConvertTo-SecureString '{PASSWORD}' -AsPlainText -Force))
+$routerIPs = Invoke-Command -ComputerName 'Vm-Router' -Credential $innerCred -ScriptBlock {
+    Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "Loopback*" -and $_.IPAddress -ne "127.0.0.1" } | Sort-Object InterfaceAlias | Format-Table InterfaceAlias, IPAddress, PrefixLength -AutoSize | Out-String
+}
+$sections += $routerIPs
+$sections += "--- Vm-Router ROUTING TABLE ---"
+$routerRoutes = Invoke-Command -ComputerName 'Vm-Router' -Credential $innerCred -ScriptBlock {
+    Get-NetRoute -AddressFamily IPv4 | Where-Object { $_.DestinationPrefix -ne '255.255.255.255/32' -and $_.NextHop -ne '0.0.0.0' } | Sort-Object DestinationPrefix | Format-Table DestinationPrefix, NextHop, @{N='Interface';E={$_.InterfaceAlias}} -AutoSize | Out-String
+}
+$sections += $routerRoutes
+$sections -join "`n"
+'@ -replace '\{PASSWORD\}', $Password.Replace("'", "''")
+
+    Write-Command -Command 'Get-VM (AzLMGMT); Get-NetIPAddress, Get-NetRoute (Vm-Router)' -Where 'AzLMGMT'
+    $mgmtOutput = Invoke-NestedHostCommand -ResourceGroup $ResourceGroup -ComputerName 'AzLMGMT' -Password $Password -ScriptText $mgmtScript
+    if ($mgmtOutput) { Write-Host $mgmtOutput } else { Write-Warn 'No output received from AzLMGMT.' }
+    Write-Info 'The router has interfaces on management (192.168.1.x), VM (192.168.200.x), and AKS (10.10.0.x) VLANs.'
+    Write-Info 'Its default route points to the Azure VNet gateway for internet access via Azure.'
 
     Write-Banner 'Architecture exploration completed'
 }
