@@ -46,7 +46,7 @@ Write-Host ""
 $diagTempFile = Join-Path ([System.IO.Path]::GetTempPath()) "localbox-diag-$(Get-Random).ps1"
 @'
 $azcopyVer = try { azcopy --version 2>$null } catch { $null }
-if ($azcopyVer) { Write-Output "azcopy: OK ($azcopyVer)" } else { Write-Output "azcopy: MISSING - setup will fail without it" }
+if ($azcopyVer) { Write-Output "azcopy: OK ($azcopyVer)" } else { Write-Output "azcopy: MISSING (normal during early Bootstrap - installed via Chocolatey before VHD download starts)" }
 
 $pool = Get-StoragePool -FriendlyName AzLocalPool -ErrorAction SilentlyContinue
 if ($pool) { Write-Output "StoragePool: $($pool.OperationalStatus) ($($pool.HealthStatus))" } else { Write-Output "StoragePool: NOT FOUND" }
@@ -230,8 +230,30 @@ $errors = $allLogs | Where-Object {
     ($_ -match 'Write-Error|TerminatingError|Aborting|source VHDX not found') -and
     ($_ -notmatch 'ErrorAction|ErrorVariable|SilentlyContinue|CategoryInfo|FullyQualifiedErrorId|^\s*\+')
 } | Select-Object -Last 10
+
+# Known cosmetic errors that can be safely ignored
+$cosmeticPatterns = @(
+    @{ Pattern = "TerminatingError\(New-StoragePool\).*PhysicalDisks.*null or empty"; Label = "COSMETIC: StoragePool retries until disks appear (normal on first boot)" }
+    @{ Pattern = "TerminatingError\(Get-ClusterResource\).*not found";               Label = "COSMETIC: Cluster resource queried before creation (timing)" }
+    @{ Pattern = "TerminatingError\(Get-VM\).*Hyper-V.*not enabled";                 Label = "COSMETIC: Hyper-V queried before feature install completes" }
+    @{ Pattern = "TerminatingError\(Resolve-DnsName\)";                              Label = "COSMETIC: DNS resolution fails during early network setup" }
+    @{ Pattern = "WARNING.*Az\.Accounts.*already loaded";                            Label = "COSMETIC: PowerShell module version conflict (harmless)" }
+)
+
 if ($errors) {
-    foreach ($e in $errors) { Write-Output $e }
+    foreach ($e in $errors) {
+        $isCosmetic = $false
+        foreach ($cp in $cosmeticPatterns) {
+            if ($e -match $cp.Pattern) {
+                Write-Output "[OK] $($cp.Label)"
+                $isCosmetic = $true
+                break
+            }
+        }
+        if (-not $isCosmetic) {
+            Write-Output "[!!] $e"
+        }
+    }
 } else {
     Write-Output "(none)"
 }
@@ -257,7 +279,9 @@ if ($errors) {
                     Write-Host $line -ForegroundColor Yellow
                 } elseif ($line -match '^===') {
                     Write-Host $line -ForegroundColor Cyan
-                } elseif ($line -match 'Write-Error|TerminatingError|FAILED|Aborting|source VHDX not found') {
+                } elseif ($line -match '^\[OK\]') {
+                    Write-Host $line -ForegroundColor DarkGray
+                } elseif ($line -match '^\[!!\]|Write-Error|TerminatingError|FAILED|Aborting|source VHDX not found') {
                     Write-Host $line -ForegroundColor Red
                 } else {
                     Write-Host $line
@@ -272,6 +296,71 @@ if ($errors) {
     } finally {
         Remove-Item $progressFile -ErrorAction SilentlyContinue
     }
+
+    # ── Azure resource status checks ──────────────────────────────
+    Write-Host ""
+    Write-Host "=== Azure Resource Status ===" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Arc-enabled servers
+    $arcServers = az connectedmachine list -g $ResourceGroup --query "[].{name:name, status:status, agentVersion:agentVersion}" -o json 2>$null | ConvertFrom-Json
+    if ($arcServers -and $arcServers.Count -gt 0) {
+        Write-Host "Arc-enabled servers:" -ForegroundColor White
+        foreach ($s in $arcServers) {
+            $color = if ($s.status -eq "Connected") { "Green" } else { "Yellow" }
+            Write-Host "  $($s.name): $($s.status) (agent v$($s.agentVersion))" -ForegroundColor $color
+        }
+    } else {
+        Write-Host "Arc-enabled servers: None registered yet" -ForegroundColor DarkGray
+    }
+
+    # Azure Local cluster
+    $cluster = az stack-hci cluster list -g $ResourceGroup --query "[0].{name:name, status:status}" -o json 2>$null | ConvertFrom-Json
+    if ($cluster -and $cluster.name) {
+        $color = switch ($cluster.status) {
+            "ConnectedRecently" { "Green" }
+            "DeploymentInProgress" { "Yellow" }
+            default { "Red" }
+        }
+        Write-Host "Azure Local cluster: $($cluster.name) — $($cluster.status)" -ForegroundColor $color
+    } else {
+        Write-Host "Azure Local cluster: Not yet created" -ForegroundColor DarkGray
+    }
+
+    # Custom location
+    $customLoc = az customlocation list -g $ResourceGroup --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>$null | ConvertFrom-Json
+    if ($customLoc -and $customLoc.name) {
+        $color = if ($customLoc.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
+        Write-Host "Custom location: $($customLoc.name) — $($customLoc.provisioningState)" -ForegroundColor $color
+    } else {
+        Write-Host "Custom location: Not yet created" -ForegroundColor DarkGray
+    }
+
+    # Connected Kubernetes clusters
+    $k8s = az connectedk8s list -g $ResourceGroup --query "[].{name:name, connectivityStatus:connectivityStatus}" -o json 2>$null | ConvertFrom-Json
+    if ($k8s -and $k8s.Count -gt 0) {
+        Write-Host "Connected Kubernetes:" -ForegroundColor White
+        foreach ($c in $k8s) {
+            $color = if ($c.connectivityStatus -eq "Connected") { "Green" } else { "Yellow" }
+            Write-Host "  $($c.name): $($c.connectivityStatus)" -ForegroundColor $color
+        }
+    } else {
+        Write-Host "Connected Kubernetes: None registered yet" -ForegroundColor DarkGray
+    }
+
+    # Arc Gateway (if deployed)
+    $gw = az rest --method get --url "/subscriptions/{subscriptionId}/resourceGroups/$ResourceGroup/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" --query "value[0].{name:name, state:properties.gatewayType}" -o json 2>$null | ConvertFrom-Json
+    if ($gw -and $gw.name) {
+        Write-Host "Arc Gateway: $($gw.name) — deployed" -ForegroundColor Green
+    }
+
+    # Azure Firewall (if deployed)
+    $fw = az network firewall list -g $ResourceGroup --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>$null | ConvertFrom-Json
+    if ($fw -and $fw.name) {
+        $color = if ($fw.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
+        Write-Host "Azure Firewall: $($fw.name) — $($fw.provisioningState)" -ForegroundColor $color
+    }
+
     Write-Host ""
     exit 0
 }

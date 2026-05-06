@@ -1,19 +1,15 @@
 #####################################################################
-# deploy-firewall.ps1 — Deploy Azure Firewall for a LocalBox lab
+# deploy-firewall.ps1 - Deploy Azure Firewall for a LocalBox lab
 #
 # Creates a dedicated Azure Firewall subnet, public IP, firewall policy,
 # diagnostics, and a default route so LocalBox-Subnet egress flows through
-# Azure Firewall. After the UDR is applied, LocalBox-Client and anything
-# behind Vm-Router reach Azure management endpoints and the Internet through
-# the firewall.
+# Azure Firewall.
 #
-# Cost note: Azure Firewall Standard is expensive for a lab environment.
-# Expect roughly ~$30/day while it is running.
+# Cost note: Azure Firewall Standard costs ~$30/day while running.
 #
-# Usage examples:
-#   .\scripts\deploy-firewall.ps1 -ResourceGroup azlocal2
-#   .\scripts\deploy-firewall.ps1 -ResourceGroup azlocal2 -Location swedencentral
-#   .\scripts\deploy-firewall.ps1 -ResourceGroup azlocal2 -FirewallName LocalBox-Firewall
+# Usage:
+#   .\scripts\deploy-firewall.ps1 -ResourceGroup azlocal
+#   .\scripts\deploy-firewall.ps1 -ResourceGroup azlocal -Location swedencentral
 #####################################################################
 
 param(
@@ -34,94 +30,15 @@ $PolicyName = "$FirewallName-Policy"
 $ApplicationRcgName = "LocalBox-App-RCG"
 $NatRcgName = "LocalBox-NAT-RCG"
 $NetworkRcgName = "LocalBox-Network-RCG"
-$FirewallIpConfigName = "LocalBoxFirewallIpConfig"
 $RouteTableName = "LocalBox-FW-RouteTable"
 $DefaultRouteName = "DefaultToFirewall"
 $DiagSettingName = "$FirewallName-Diagnostics"
 $FallbackWorkspaceName = "LocalBox-FW-Workspace"
-$FirewallApiVersion = "2024-05-01"
-$FirewallPolicyApiVersion = "2024-10-01"
-
-function Invoke-AzText {
-    param(
-        [Parameter(Mandatory)][string[]]$Arguments,
-        [switch]$AllowFailure
-    )
-
-    $output = & az @Arguments --only-show-errors 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        if ($AllowFailure) {
-            return $null
-        }
-
-        throw "az $($Arguments -join ' ') failed: $($output | Out-String)"
-    }
-
-    if ($null -eq $output) {
-        return $null
-    }
-
-    return ($output | Out-String).Trim()
-}
-
-function Invoke-AzJson {
-    param(
-        [Parameter(Mandatory)][string[]]$Arguments,
-        [switch]$AllowFailure
-    )
-
-    $text = Invoke-AzText -Arguments $Arguments -AllowFailure:$AllowFailure
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $null
-    }
-
-    return $text | ConvertFrom-Json -Depth 100
-}
-
-function Invoke-AzNoOutput {
-    param([Parameter(Mandatory)][string[]]$Arguments)
-    # az rest has issues with inline JSON bodies on Windows PowerShell (quote stripping).
-    # Work around by writing the body to a temp file and using @file syntax.
-    $bodyIndex = [array]::IndexOf($Arguments, "--body")
-    $tempFile = $null
-    if ($bodyIndex -ge 0 -and ($bodyIndex + 1) -lt $Arguments.Count) {
-        $tempFile = [System.IO.Path]::GetTempFileName()
-        Set-Content -Path $tempFile -Value $Arguments[$bodyIndex + 1] -NoNewline
-        $Arguments[$bodyIndex + 1] = "@$tempFile"
-    }
-    try {
-        [void](Invoke-AzText -Arguments ($Arguments + @("--output", "none")))
-    } finally {
-        if ($tempFile) { Remove-Item $tempFile -ErrorAction SilentlyContinue }
-    }
-}
 
 function Write-Step {
     param([string]$Message)
     Write-Host ""
     Write-Host $Message -ForegroundColor Cyan
-}
-
-function Wait-ForFirewallPrivateIp {
-    param([int]$Attempts = 30, [int]$DelaySeconds = 10)
-
-    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-        $ip = Invoke-AzText -Arguments @(
-            "resource", "show",
-            "--ids", $script:FirewallId,
-            "--api-version", $script:FirewallApiVersion,
-            "--query", "properties.ipConfigurations[0].properties.privateIPAddress",
-            "-o", "tsv"
-        ) -AllowFailure
-
-        if (-not [string]::IsNullOrWhiteSpace($ip)) {
-            return $ip
-        }
-
-        Start-Sleep -Seconds $DelaySeconds
-    }
-
-    throw "Timed out waiting for Azure Firewall private IP."
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -131,360 +48,186 @@ Write-Host " Resource Group : $ResourceGroup"
 Write-Host " Firewall Name  : $FirewallName"
 Write-Host "============================================="
 
-$rgExists = Invoke-AzText -Arguments @("group", "exists", "-n", $ResourceGroup)
+# -- Validate prerequisites --
+$rgExists = az group exists -n $ResourceGroup -o tsv
 if ($rgExists -ne "true") {
     throw "Resource group '$ResourceGroup' does not exist."
 }
 
-$resourceGroupLocation = Invoke-AzText -Arguments @("group", "show", "-n", $ResourceGroup, "--query", "location", "-o", "tsv")
 if ([string]::IsNullOrWhiteSpace($Location)) {
-    $Location = $resourceGroupLocation
+    $Location = az group show -n $ResourceGroup --query "location" -o tsv
 }
-
-$subscriptionId = Invoke-AzText -Arguments @("account", "show", "--query", "id", "-o", "tsv")
-$policyId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/firewallPolicies/$PolicyName"
-$applicationRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${ApplicationRcgName}?api-version=${FirewallPolicyApiVersion}"
-$natRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${NatRcgName}?api-version=${FirewallPolicyApiVersion}"
-$networkRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${NetworkRcgName}?api-version=${FirewallPolicyApiVersion}"
-$FirewallId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/azureFirewalls/$FirewallName"
-$firewallUrl = "https://management.azure.com${FirewallId}?api-version=${FirewallApiVersion}"
 
 Write-Host " Location       : $Location"
 Write-Host " VNet           : $VnetName"
 Write-Host " Firewall Policy: $PolicyName"
 
+# -- Ensure VNet and subnets --
 Write-Step "Checking LocalBox networking"
-$vnet = Invoke-AzJson -Arguments @("network", "vnet", "show", "-g", $ResourceGroup, "-n", $VnetName, "-o", "json")
-if (-not $vnet) {
+$vnetExists = az network vnet show -g $ResourceGroup -n $VnetName --query "id" -o tsv 2>$null
+if (-not $vnetExists) {
     throw "VNet '$VnetName' was not found in resource group '$ResourceGroup'."
 }
 
-$workloadSubnetId = Invoke-AzText -Arguments @(
-    "network", "vnet", "subnet", "show",
-    "-g", $ResourceGroup,
-    "--vnet-name", $VnetName,
-    "-n", $WorkloadSubnetName,
-    "--query", "id",
-    "-o", "tsv"
-) -AllowFailure
-if (-not $workloadSubnetId) {
-    throw "Subnet '$WorkloadSubnetName' was not found in VNet '$VnetName'."
-}
-
-$firewallSubnetId = Invoke-AzText -Arguments @(
-    "network", "vnet", "subnet", "show",
-    "-g", $ResourceGroup,
-    "--vnet-name", $VnetName,
-    "-n", $FirewallSubnetName,
-    "--query", "id",
-    "-o", "tsv"
-) -AllowFailure
-
+$firewallSubnetId = az network vnet subnet show -g $ResourceGroup --vnet-name $VnetName -n $FirewallSubnetName --query "id" -o tsv 2>$null
 if (-not $firewallSubnetId) {
     Write-Host "Creating $FirewallSubnetName ($FirewallSubnetPrefix)..."
-    Invoke-AzNoOutput -Arguments @(
-        "network", "vnet", "subnet", "create",
-        "-g", $ResourceGroup,
-        "--vnet-name", $VnetName,
-        "-n", $FirewallSubnetName,
-        "--address-prefixes", $FirewallSubnetPrefix
-    )
-
-    $firewallSubnetId = Invoke-AzText -Arguments @(
-        "network", "vnet", "subnet", "show",
-        "-g", $ResourceGroup,
-        "--vnet-name", $VnetName,
-        "-n", $FirewallSubnetName,
-        "--query", "id",
-        "-o", "tsv"
-    )
+    az network vnet subnet create -g $ResourceGroup --vnet-name $VnetName `
+        -n $FirewallSubnetName --address-prefixes $FirewallSubnetPrefix -o none
 } else {
     Write-Host "$FirewallSubnetName already exists."
 }
 
+# -- Ensure public IP --
 Write-Step "Ensuring firewall public IP"
-$publicIpId = Invoke-AzText -Arguments @(
-    "network", "public-ip", "show",
-    "-g", $ResourceGroup,
-    "-n", $PublicIpName,
-    "--query", "id",
-    "-o", "tsv"
-) -AllowFailure
-
-if (-not $publicIpId) {
+$publicIpExists = az network public-ip show -g $ResourceGroup -n $PublicIpName --query "id" -o tsv 2>$null
+if (-not $publicIpExists) {
     Write-Host "Creating public IP '$PublicIpName'..."
-    Invoke-AzNoOutput -Arguments @(
-        "network", "public-ip", "create",
-        "-g", $ResourceGroup,
-        "-n", $PublicIpName,
-        "-l", $Location,
-        "--sku", "Standard",
-        "--allocation-method", "Static"
-    )
-
-    $publicIpId = Invoke-AzText -Arguments @(
-        "network", "public-ip", "show",
-        "-g", $ResourceGroup,
-        "-n", $PublicIpName,
-        "--query", "id",
-        "-o", "tsv"
-    )
+    az network public-ip create -g $ResourceGroup -n $PublicIpName -l $Location `
+        --sku Standard --allocation-method Static -o none
 } else {
     Write-Host "Public IP '$PublicIpName' already exists."
 }
 
-$firewallPublicIpAddress = Invoke-AzText -Arguments @(
-    "network", "public-ip", "show",
-    "-g", $ResourceGroup,
-    "-n", $PublicIpName,
-    "--query", "ipAddress",
-    "-o", "tsv"
-)
+$firewallPublicIpAddress = az network public-ip show -g $ResourceGroup -n $PublicIpName --query "ipAddress" -o tsv
 
+# -- Ensure firewall policy --
 Write-Step "Ensuring firewall policy"
-$policyExists = Invoke-AzText -Arguments @(
-    "resource", "show",
-    "--ids", $policyId,
-    "--api-version", $FirewallPolicyApiVersion,
-    "--query", "id",
-    "-o", "tsv"
-) -AllowFailure
-
+$policyExists = az network firewall policy show -g $ResourceGroup -n $PolicyName --query "id" -o tsv 2>$null
 if (-not $policyExists) {
-    $policyBody = @{
-        location   = $Location
-        properties = @{
-            threatIntelMode = "Alert"
-        }
-    } | ConvertTo-Json -Depth 10
-
-    $policyUrl = "https://management.azure.com${policyId}?api-version=${FirewallPolicyApiVersion}"
-    Invoke-AzNoOutput -Arguments @(
-        "rest", "--method", "put",
-        "--url", $policyUrl,
-        "--body", $policyBody
-    )
+    Write-Host "Creating firewall policy '$PolicyName'..."
+    az network firewall policy create -g $ResourceGroup -n $PolicyName -l $Location `
+        --threat-intel-mode Alert -o none
 } else {
     Write-Host "Firewall policy '$PolicyName' already exists."
 }
 
-$appRcgExists = Invoke-AzText -Arguments @("rest", "--method", "get", "--url", $applicationRcgUrl) -AllowFailure
+# -- Application rule collection group (allow all HTTP/S) --
+$appRcgExists = az network firewall policy rule-collection-group show -g $ResourceGroup `
+    --policy-name $PolicyName -n $ApplicationRcgName --query "id" -o tsv 2>$null
 if (-not $appRcgExists) {
     Write-Host "Creating application rule collection group '$ApplicationRcgName'..."
-    $appRcgBody = @{
-        properties = @{
-            priority        = 100
-            ruleCollections = @(
-                @{
-                    name               = "AllowAll"
-                    priority           = 100
-                    ruleCollectionType = "FirewallPolicyFilterRuleCollection"
-                    action             = @{ type = "Allow" }
-                    rules              = @(
-                        @{
-                            name            = "permit-any"
-                            ruleType        = "ApplicationRule"
-                            sourceAddresses = @("*")
-                            targetFqdns     = @("*")
-                            protocols       = @(
-                                @{ protocolType = "Http";  port = 80 },
-                                @{ protocolType = "Https"; port = 443 }
-                            )
-                        }
-                    )
-                }
-            )
-        }
-    } | ConvertTo-Json -Depth 20
-
-    Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $applicationRcgUrl, "--body", $appRcgBody)
+    az network firewall policy rule-collection-group create -g $ResourceGroup `
+        --policy-name $PolicyName -n $ApplicationRcgName --priority 100 -o none
+    az network firewall policy rule-collection-group collection add-filter-collection `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $ApplicationRcgName `
+        -n "AllowAll" --collection-priority 100 --action Allow --rule-type ApplicationRule `
+        --rule-name "permit-any" --source-addresses "*" --target-fqdns "*" `
+        --protocols Http=80 Https=443 -o none
 } else {
     Write-Host "Application rule collection group '$ApplicationRcgName' already exists."
 }
 
-$networkRcgExists = Invoke-AzText -Arguments @("rest", "--method", "get", "--url", $networkRcgUrl) -AllowFailure
+# -- Network rule collection group (placeholder) --
+$networkRcgExists = az network firewall policy rule-collection-group show -g $ResourceGroup `
+    --policy-name $PolicyName -n $NetworkRcgName --query "id" -o tsv 2>$null
 if (-not $networkRcgExists) {
-    Write-Host "Creating empty network rule collection group '$NetworkRcgName'..."
-    $networkRcgBody = @{
-        properties = @{
-            priority        = 200
-            ruleCollections = @(
-                @{
-                    name               = "AllowRequired"
-                    priority           = 200
-                    ruleCollectionType = "FirewallPolicyFilterRuleCollection"
-                    action             = @{ type = "Allow" }
-                    rules              = @()
-                }
-            )
-        }
-    } | ConvertTo-Json -Depth 20
-
-    Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $networkRcgUrl, "--body", $networkRcgBody)
+    Write-Host "Creating network rule collection group '$NetworkRcgName'..."
+    az network firewall policy rule-collection-group create -g $ResourceGroup `
+        --policy-name $PolicyName -n $NetworkRcgName --priority 200 -o none
 } else {
     Write-Host "Network rule collection group '$NetworkRcgName' already exists."
 }
 
+# -- DNAT rule for RDP access --
 Write-Step "Ensuring DNAT rule for RDP access"
-$clientPrivateIp = Invoke-AzText -Arguments @(
-    "vm", "show",
-    "-g", $ResourceGroup,
-    "-n", "LocalBox-Client",
-    "--query", "privateIps",
-    "-d",
-    "-o", "tsv"
-) -AllowFailure
+$clientPrivateIp = az vm show -g $ResourceGroup -n "LocalBox-Client" -d --query "privateIps" -o tsv 2>$null
 
 if (-not $clientPrivateIp) {
     Write-Host "  WARNING: Could not find LocalBox-Client private IP. Skipping DNAT rule." -ForegroundColor Yellow
 } else {
     Write-Host "  LocalBox-Client private IP: $clientPrivateIp"
-    $natRcgExists = Invoke-AzText -Arguments @("rest", "--method", "get", "--url", $natRcgUrl) -AllowFailure
+    $natRcgExists = az network firewall policy rule-collection-group show -g $ResourceGroup `
+        --policy-name $PolicyName -n $NatRcgName --query "id" -o tsv 2>$null
     if (-not $natRcgExists) {
-        Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP → $clientPrivateIp)..."
-        $natRcgBody = @{
-            properties = @{
-                priority        = 150
-                ruleCollections = @(
-                    @{
-                        name               = "InboundRDP"
-                        priority           = 150
-                        ruleCollectionType = "FirewallPolicyNatRuleCollection"
-                        action             = @{ type = "DNAT" }
-                        rules              = @(
-                            @{
-                                name                = "RDP-to-LocalBox-Client"
-                                ruleType            = "NatRule"
-                                sourceAddresses     = @("*")
-                                destinationAddresses = @($firewallPublicIpAddress)
-                                destinationPorts    = @("3389")
-                                ipProtocols         = @("TCP")
-                                translatedAddress   = $clientPrivateIp
-                                translatedPort      = "3389"
-                            }
-                        )
-                    }
-                )
-            }
-        } | ConvertTo-Json -Depth 20
-
-        Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $natRcgUrl, "--body", $natRcgBody)
+        Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP -> $clientPrivateIp)..."
+        az network firewall policy rule-collection-group create -g $ResourceGroup `
+            --policy-name $PolicyName -n $NatRcgName --priority 150 -o none
+        az network firewall policy rule-collection-group collection add-nat-collection `
+            -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NatRcgName `
+            -n "InboundRDP" --collection-priority 150 --action DNAT `
+            --rule-name "RDP-to-LocalBox-Client" `
+            --source-addresses "*" `
+            --destination-addresses $firewallPublicIpAddress `
+            --destination-ports 3389 `
+            --ip-protocols TCP `
+            --translated-address $clientPrivateIp `
+            --translated-port 3389 -o none
     } else {
         Write-Host "  NAT rule collection group '$NatRcgName' already exists."
     }
 }
 
+# -- Deploy Azure Firewall --
 Write-Step "Ensuring Azure Firewall"
-$firewallBody = @{
-    location   = $Location
-    properties = @{
-        sku             = @{ name = "AZFW_VNet"; tier = "Standard" }
-        threatIntelMode = "Alert"
-        firewallPolicy  = @{ id = $policyId }
-        ipConfigurations = @(
-            @{
-                name       = $FirewallIpConfigName
-                properties = @{
-                    subnet          = @{ id = $firewallSubnetId }
-                    publicIPAddress = @{ id = $publicIpId }
-                }
-            }
-        )
-    }
-} | ConvertTo-Json -Depth 20
+$firewallState = az network firewall show -g $ResourceGroup -n $FirewallName --query "provisioningState" -o tsv 2>$null
+if (-not $firewallState) {
+    Write-Host "Creating Azure Firewall '$FirewallName' (this takes 5-10 minutes)..."
+    az network firewall create -g $ResourceGroup -n $FirewallName -l $Location `
+        --policy $PolicyName --vnet-name $VnetName `
+        --conf-name "LocalBoxFirewallIpConfig" --public-ip $PublicIpName -o none
+} else {
+    Write-Host "Azure Firewall '$FirewallName' already exists ($firewallState)."
+}
 
-Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $firewallUrl, "--body", $firewallBody)
+# Wait for firewall private IP
+Write-Host "Waiting for firewall private IP..."
+$firewallPrivateIp = $null
+for ($attempt = 1; $attempt -le 30; $attempt++) {
+    $firewallPrivateIp = az network firewall show -g $ResourceGroup -n $FirewallName `
+        --query "ipConfigurations[0].privateIpAddress" -o tsv 2>$null
+    if ($firewallPrivateIp -and $firewallPrivateIp -ne "None") { break }
+    Start-Sleep -Seconds 10
+}
+if (-not $firewallPrivateIp -or $firewallPrivateIp -eq "None") {
+    throw "Timed out waiting for Azure Firewall private IP."
+}
+Write-Host "  Firewall private IP: $firewallPrivateIp"
 
-$firewallPrivateIp = Wait-ForFirewallPrivateIp
-
+# -- Log Analytics and diagnostics --
 Write-Step "Ensuring Log Analytics workspace and diagnostics"
-$workspace = Invoke-AzJson -Arguments @("monitor", "log-analytics", "workspace", "list", "-g", $ResourceGroup, "-o", "json")
-$matchingWorkspace = $workspace | Where-Object { $_.name -like "*Workspace*" } | Select-Object -First 1
+$workspaces = az monitor log-analytics workspace list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json
+$matchingWorkspace = $workspaces | Where-Object { $_.name -like "*Workspace*" } | Select-Object -First 1
 
 if (-not $matchingWorkspace) {
     Write-Host "No matching workspace found. Creating '$FallbackWorkspaceName'..."
-    Invoke-AzNoOutput -Arguments @(
-        "monitor", "log-analytics", "workspace", "create",
-        "-g", $ResourceGroup,
-        "-n", $FallbackWorkspaceName,
-        "-l", $Location
-    )
-
-    $matchingWorkspace = Invoke-AzJson -Arguments @(
-        "monitor", "log-analytics", "workspace", "show",
-        "-g", $ResourceGroup,
-        "-n", $FallbackWorkspaceName,
-        "-o", "json"
-    )
+    az monitor log-analytics workspace create -g $ResourceGroup -n $FallbackWorkspaceName -l $Location -o none
+    $matchingWorkspace = az monitor log-analytics workspace show -g $ResourceGroup -n $FallbackWorkspaceName -o json | ConvertFrom-Json
 } else {
     Write-Host "Using Log Analytics workspace '$($matchingWorkspace.name)'."
 }
 
-$logs = @(
-    @{ category = "AZFWApplicationRule"; enabled = $true; retentionPolicy = @{ enabled = $false; days = 0 } },
-    @{ category = "AZFWNetworkRule"; enabled = $true; retentionPolicy = @{ enabled = $false; days = 0 } },
-    @{ category = "AZFWDnsQuery"; enabled = $true; retentionPolicy = @{ enabled = $false; days = 0 } }
-) | ConvertTo-Json -Depth 10 -Compress
+$firewallId = az network firewall show -g $ResourceGroup -n $FirewallName --query "id" -o tsv
+az monitor diagnostic-settings create --resource $firewallId -n $DiagSettingName `
+    --workspace $matchingWorkspace.id --export-to-resource-specific true `
+    --logs "[{category:AZFWApplicationRule,enabled:true},{category:AZFWNetworkRule,enabled:true},{category:AZFWDnsQuery,enabled:true}]" -o none 2>$null
 
-Invoke-AzNoOutput -Arguments @(
-    "monitor", "diagnostic-settings", "create",
-    "--resource", $FirewallId,
-    "-n", $DiagSettingName,
-    "--workspace", $matchingWorkspace.id,
-    "--export-to-resource-specific", "true",
-    "--logs", $logs
-)
-
+# -- Route table --
 Write-Step "Ensuring route table and subnet association"
-$routeTableId = Invoke-AzText -Arguments @(
-    "network", "route-table", "show",
-    "-g", $ResourceGroup,
-    "-n", $RouteTableName,
-    "--query", "id",
-    "-o", "tsv"
-) -AllowFailure
-
-if (-not $routeTableId) {
+$routeTableExists = az network route-table show -g $ResourceGroup -n $RouteTableName --query "id" -o tsv 2>$null
+if (-not $routeTableExists) {
     Write-Host "Creating route table '$RouteTableName'..."
-    Invoke-AzNoOutput -Arguments @(
-        "network", "route-table", "create",
-        "-g", $ResourceGroup,
-        "-n", $RouteTableName,
-        "-l", $Location
-    )
+    az network route-table create -g $ResourceGroup -n $RouteTableName -l $Location -o none
 } else {
     Write-Host "Route table '$RouteTableName' already exists."
 }
 
-Invoke-AzNoOutput -Arguments @(
-    "network", "route-table", "route", "create",
-    "-g", $ResourceGroup,
-    "--route-table-name", $RouteTableName,
-    "-n", $DefaultRouteName,
-    "--address-prefix", "0.0.0.0/0",
-    "--next-hop-type", "VirtualAppliance",
-    "--next-hop-ip-address", $firewallPrivateIp
-)
+az network route-table route create -g $ResourceGroup --route-table-name $RouteTableName `
+    -n $DefaultRouteName --address-prefix "0.0.0.0/0" `
+    --next-hop-type VirtualAppliance --next-hop-ip-address $firewallPrivateIp -o none 2>$null
 
-$currentRouteTableId = Invoke-AzText -Arguments @(
-    "network", "vnet", "subnet", "show",
-    "-g", $ResourceGroup,
-    "--vnet-name", $VnetName,
-    "-n", $WorkloadSubnetName,
-    "--query", "routeTable.id",
-    "-o", "tsv"
-) -AllowFailure
-
-if ($currentRouteTableId -ne ("/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/routeTables/$RouteTableName")) {
-    Invoke-AzNoOutput -Arguments @(
-        "network", "vnet", "subnet", "update",
-        "-g", $ResourceGroup,
-        "--vnet-name", $VnetName,
-        "-n", $WorkloadSubnetName,
-        "--route-table", $RouteTableName
-    )
+# Associate route table with workload subnet
+$currentRt = az network vnet subnet show -g $ResourceGroup --vnet-name $VnetName `
+    -n $WorkloadSubnetName --query "routeTable.id" -o tsv 2>$null
+if (-not $currentRt) {
+    Write-Host "Associating route table with '$WorkloadSubnetName'..."
+    az network vnet subnet update -g $ResourceGroup --vnet-name $VnetName `
+        -n $WorkloadSubnetName --route-table $RouteTableName -o none
+} else {
+    Write-Host "Route table already associated with '$WorkloadSubnetName'."
 }
 
+# -- Summary --
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Azure Firewall Ready" -ForegroundColor Green
@@ -499,5 +242,5 @@ if ($clientPrivateIp) {
     Write-Host ""
     Write-Host "RDP access via DNAT:" -ForegroundColor Cyan
     Write-Host "  mstsc /v:$firewallPublicIpAddress"
-    Write-Host "  (Firewall forwards port 3389 → $clientPrivateIp)"
+    Write-Host "  (Firewall forwards port 3389 -> $clientPrivateIp)"
 }
