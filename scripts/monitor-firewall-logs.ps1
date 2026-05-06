@@ -73,37 +73,25 @@ function Invoke-WorkspaceQuery {
         [Parameter(Mandatory)][string]$Query
     )
 
+    # Collapse multiline queries to single line — az CLI hangs on multiline --analytics-query
+    $singleLine = ($Query -replace '\r?\n', ' ' -replace '\s+', ' ').Trim()
+
     $result = Invoke-AzJson -Arguments @(
         "monitor", "log-analytics", "query",
         "-w", $WorkspaceId,
-        "--analytics-query", $Query,
+        "--analytics-query", $singleLine,
         "-o", "json"
     ) -AllowFailure
 
     if (-not $result) {
         return @()
     }
-    if (-not ($result.PSObject.Properties['tables'])) {
-        return @()
-    }
-    if (-not $result.tables -or $result.tables.Count -eq 0) {
-        return @()
+
+    if ($result -is [array]) {
+        return $result
     }
 
-    $table = $result.tables[0]
-    if (-not $table.rows -or $table.rows.Count -eq 0) {
-        return @()
-    }
-
-    $objects = foreach ($row in $table.rows) {
-        $item = [ordered]@{}
-        for ($i = 0; $i -lt $table.columns.Count; $i++) {
-            $item[$table.columns[$i].name] = $row[$i]
-        }
-        [pscustomobject]$item
-    }
-
-    return $objects
+    return @($result)
 }
 
 function Write-Section {
@@ -114,14 +102,24 @@ function Write-Section {
 }
 
 function Write-ResultTable {
-    param([Parameter(Mandatory)][object[]]$Rows)
+    param([object[]]$Rows)
 
-    if (-not $Rows -or $Rows.Count -eq 0) {
-        Write-Host "No results found."
+    if (-not $Rows -or @($Rows).Count -eq 0) {
+        Write-Host "  No results found." -ForegroundColor DarkGray
         return
     }
 
-    $Rows | Format-Table -AutoSize -Wrap
+    # Remove the TableName property that az log-analytics query adds
+    $cleaned = @($Rows) | ForEach-Object {
+        if ($_ -is [hashtable]) {
+            $h = $_.Clone()
+            $h.Remove('TableName')
+            [pscustomobject]$h
+        } else {
+            $_ | Select-Object -Property * -ExcludeProperty TableName
+        }
+    }
+    $cleaned | Format-Table -AutoSize | Out-String | Write-Host
 }
 
 $workspaceList = Invoke-AzJson -Arguments @("monitor", "log-analytics", "workspace", "list", "-g", $ResourceGroup, "-o", "json")
@@ -205,12 +203,18 @@ Write-Host "============================================="
 
 # Verify data is actually flowing before running queries
 $countQuery = @"
-union isfuzzy=true AZFWNetworkRule, AZFWApplicationRule, AzureDiagnostics
+AzureDiagnostics
 | where TimeGenerated > ago($TimeRange)
+| where Category in ('AZFWNetworkRule', 'AZFWApplicationRule')
 | count
 "@
 $countResult = Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $countQuery
-$totalRows = if ($countResult -and $countResult.Count -gt 0) { [int]$countResult[0].Count } else { 0 }
+$totalRows = 0
+if ($countResult -and @($countResult).Count -gt 0) {
+    $first = @($countResult)[0]
+    if ($first -is [hashtable]) { $totalRows = [int]$first['Count'] }
+    else { $totalRows = [int]$first.Count }
+}
 
 if ($totalRows -eq 0) {
     Write-Host ""
@@ -222,9 +226,14 @@ if ($totalRows -eq 0) {
     Write-Host ""
 
     # Try wider time range as a hint
-    $widerQuery = "union isfuzzy=true AZFWNetworkRule, AZFWApplicationRule, AzureDiagnostics | where TimeGenerated > ago(7d) | count"
+    $widerQuery = "AzureDiagnostics | where TimeGenerated > ago(7d) | where Category in ('AZFWNetworkRule', 'AZFWApplicationRule') | count"
     $widerResult = Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $widerQuery
-    $widerCount = if ($widerResult -and $widerResult.Count -gt 0) { [int]$widerResult[0].Count } else { 0 }
+    $widerCount = 0
+    if ($widerResult -and @($widerResult).Count -gt 0) {
+        $first = @($widerResult)[0]
+        if ($first -is [hashtable]) { $widerCount = [int]$first['Count'] }
+        else { $widerCount = [int]$first.Count }
+    }
     if ($widerCount -gt 0) {
         Write-Host "  Hint: Found $widerCount records in the last 7 days. Try: -TimeRange 7d" -ForegroundColor Cyan
     } else {
@@ -237,66 +246,29 @@ if ($totalRows -eq 0) {
 switch ($Action) {
     "summary" {
         $summaryQuery = @"
-union isfuzzy=true
-(
-    AZFWApplicationRule
-    | where TimeGenerated > ago($TimeRange)
-    | summarize Hits=count() by Category="ApplicationRule", Action
-),
-(
-    AZFWNetworkRule
-    | where TimeGenerated > ago($TimeRange)
-    | summarize Hits=count() by Category="NetworkRule", Action
-),
-(
-    AzureDiagnostics
-    | where TimeGenerated > ago($TimeRange)
-    | where Category == "AzureFirewallApplicationRule"
-    | summarize Hits=count() by Category="ApplicationRule(legacy)", Action=extract("Action: (\\w+)", 1, msg_s)
-),
-(
-    AzureDiagnostics
-    | where TimeGenerated > ago($TimeRange)
-    | where Category == "AzureFirewallNetworkRule"
-    | summarize Hits=count() by Category="NetworkRule(legacy)", Action=extract("Action: (\\w+)", 1, msg_s)
-)
-| where isnotempty(Action)
-| order by Category asc, Hits desc
+AzureDiagnostics
+| where TimeGenerated > ago($TimeRange)
+| where Category in ('AZFWNetworkRule', 'AZFWApplicationRule')
+| extend RuleCategory = iif(Category == 'AZFWApplicationRule', 'Application', 'Network')
+| summarize Hits=count() by RuleCategory, Action_s
+| order by RuleCategory asc, Hits desc
 "@
 
         $fqdnQuery = @"
-union isfuzzy=true
-(
-    AZFWApplicationRule
-    | where TimeGenerated > ago($TimeRange)
-    | where isnotempty(Fqdn)
-    | summarize Hits=count() by Fqdn
-),
-(
-    AzureDiagnostics
-    | where TimeGenerated > ago($TimeRange)
-    | where Category == "AzureFirewallApplicationRule"
-    | extend Fqdn=extract("to (\\S+):", 1, msg_s)
-    | where isnotempty(Fqdn)
-    | summarize Hits=count() by Fqdn
-)
-| summarize Hits=sum(Hits) by Fqdn
-| top 10 by Hits desc
+AzureDiagnostics
+| where TimeGenerated > ago($TimeRange)
+| where Category == 'AZFWApplicationRule'
+| where isnotempty(Fqdn_s)
+| summarize Hits=count() by Fqdn_s, Action_s
+| top 15 by Hits desc
 "@
 
         $sourceQuery = @"
-union isfuzzy=true
-(
-    AZFWNetworkRule
-    | where TimeGenerated > ago($TimeRange)
-    | summarize Hits=count() by SourceIp, Action
-),
-(
-    AZFWApplicationRule
-    | where TimeGenerated > ago($TimeRange)
-    | summarize Hits=count() by SourceIp, Action
-)
-| summarize Hits=sum(Hits) by SourceIp, Action
+AzureDiagnostics
+| where TimeGenerated > ago($TimeRange)
+| where Category in ('AZFWNetworkRule', 'AZFWApplicationRule')
+| where isnotempty(SourceIP)
+| summarize Hits=count() by SourceIP, Action_s
 | order by Hits desc
 | take 15
 "@
@@ -304,7 +276,7 @@ union isfuzzy=true
         Write-Section "Allow/Deny Summary"
         Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $summaryQuery)
 
-        Write-Section "Top 10 FQDNs"
+        Write-Section "Top FQDNs (Application Rules)"
         Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $fqdnQuery)
 
         Write-Section "Top Source IPs"
@@ -312,38 +284,18 @@ union isfuzzy=true
     }
     "denied" {
         $deniedQuery = @"
-union isfuzzy=true
-(
-    AZFWApplicationRule
-    | where TimeGenerated > ago($TimeRange)
-    | where Action == "Deny"
-    | extend Destination=Fqdn, Port=tostring(case(Protocol == "Http", 80, Protocol == "Https", 443, "n/a")), Protocol=tostring(Protocol)
-    | summarize Hits=count() by Category="ApplicationRule", SourceIp, Destination, Port, Protocol
-),
-(
-    AZFWNetworkRule
-    | where TimeGenerated > ago($TimeRange)
-    | where Action == "Deny"
-    | extend Destination=tostring(DestinationIp), Port=tostring(DestinationPort), Protocol=tostring(Protocol)
-    | summarize Hits=count() by Category="NetworkRule", SourceIp, Destination, Port, Protocol
-),
-(
-    AzureDiagnostics
-    | where TimeGenerated > ago($TimeRange)
-    | where Category == "AzureFirewallApplicationRule"
-    | where msg_s contains "Deny"
-    | extend Destination=extract("to (\\S+):", 1, msg_s), Port=extract(":(\\d+)", 1, msg_s), Protocol="Http/s", SourceIp=extract("from (\\S+):", 1, msg_s)
-    | summarize Hits=count() by Category="ApplicationRule(legacy)", SourceIp, Destination, Port, Protocol
-),
-(
-    AzureDiagnostics
-    | where TimeGenerated > ago($TimeRange)
-    | where Category == "AzureFirewallNetworkRule"
-    | where msg_s contains "Deny"
-    | extend Destination=extract("to (\\S+):", 1, msg_s), Port=extract(":(\\d+)", 1, msg_s), Protocol=extract("(TCP|UDP|ICMP)", 1, msg_s), SourceIp=extract("from (\\S+):", 1, msg_s)
-    | summarize Hits=count() by Category="NetworkRule(legacy)", SourceIp, Destination, Port, Protocol
-)
+AzureDiagnostics
+| where TimeGenerated > ago($TimeRange)
+| where Category in ('AZFWNetworkRule', 'AZFWApplicationRule')
+| where Action_s == 'Deny'
+| extend RuleCategory = iif(Category == 'AZFWApplicationRule', 'Application', 'Network')
+| extend Destination = coalesce(Fqdn_s, DestinationIp_s)
+| extend Port = tostring(toint(DestinationPort_d))
+| extend Proto = Protocol_s
+| where isnotempty(Destination)
+| summarize Hits=count() by RuleCategory, SourceIP, Destination, Port, Proto
 | order by Hits desc
+| take 30
 "@
 
         Write-Section "Denied Traffic"
@@ -351,28 +303,21 @@ union isfuzzy=true
     }
     "rules" {
         $rulesQuery = @"
-union isfuzzy=true
-(
-    AZFWApplicationRule
-    | where TimeGenerated > ago($TimeRange)
-    | where Action == "Deny"
-    | where isnotempty(Fqdn)
-    | summarize Hits=count() by RuleType="ApplicationRule", Destination=Fqdn, Ports="80,443", Protocols="Http,Https"
-    | extend SuggestedRule=strcat("Application rule: permit ", Destination, " on Http:80,Https:443")
-),
-(
-    AZFWNetworkRule
-    | where TimeGenerated > ago($TimeRange)
-    | where Action == "Deny"
-    | extend Port=tostring(DestinationPort), Destination=tostring(DestinationIp), Protocols=tostring(Protocol)
-    | extend RuleType=iff(toint(DestinationPort) in (80, 443, 8443), "ApplicationRule", "NetworkRule")
-    | summarize Hits=count() by RuleType, Destination, Ports=Port, Protocols
-    | extend SuggestedRule=case(
-        RuleType == "ApplicationRule", strcat("Application rule candidate: map ", Destination, ":", Ports, " to the required FQDN and add it to AllowRequired."),
-        strcat("Network rule candidate: permit ", Protocols, " to ", Destination, ":", Ports)
-    )
-)
+AzureDiagnostics
+| where TimeGenerated > ago($TimeRange)
+| where Category in ('AZFWNetworkRule', 'AZFWApplicationRule')
+| where Action_s == 'Deny'
+| extend RuleType = iif(Category == 'AZFWApplicationRule', 'Application', 'Network')
+| extend Destination = coalesce(Fqdn_s, DestinationIp_s)
+| extend Port = tostring(toint(DestinationPort_d))
+| extend Proto = Protocol_s
+| where isnotempty(Destination)
+| summarize Hits=count() by RuleType, Destination, Port, Proto
+| extend SuggestedRule = case(
+    RuleType == 'Application', strcat('App rule: allow ', Proto, ' to ', Destination),
+    strcat('Net rule: allow ', Proto, ' to ', Destination, ':', Port))
 | order by Hits desc
+| take 30
 "@
 
         Write-Section "Suggested Rules From Denied Traffic"
