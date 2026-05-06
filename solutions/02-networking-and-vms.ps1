@@ -57,7 +57,7 @@ try {
         throw 'No custom location was found. VM deployment on Azure Local requires a custom location.'
     }
 
-    $location = $context.Location
+    $location = $context.ClusterLocation
     $customLocationId = $context.CustomLocation.id
     $logicalNetworkName = 'vm-network-200'
     $imageName = 'win2022-marketplace'

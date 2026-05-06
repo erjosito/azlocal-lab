@@ -230,6 +230,7 @@ function Get-AzureLocalContext {
     [pscustomobject]@{
         Account = $account
         Location = $location
+        ClusterLocation = if ($clusters) { $clusters[0].location } else { $location }
         Cluster = Get-PreferredItem -Items $clusters -PreferredPatterns @('localbox', 'cluster')
         CustomLocation = Get-PreferredItem -Items $customLocations -PreferredPatterns @('jumpstart-cl', 'jumpstart', '-cl$')
         ResourceBridge = Get-PreferredItem -Items $resourceBridges -PreferredPatterns @('resourcebridge', 'appliance', 'localbox')

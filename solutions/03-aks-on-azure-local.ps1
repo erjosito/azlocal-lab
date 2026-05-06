@@ -66,7 +66,7 @@ try {
 
     $aksNetworkName = 'aks-network'
     $aksClusterName = 'localbox-aks'
-    $location = $context.Location
+    $location = $context.ClusterLocation
     $customLocationId = $context.CustomLocation.id
 
     Write-Step -What 'Checking whether the AKS logical network already exists.' -Why 'AKS nodes need a dedicated workload network that is separate from the VM network used in Exercise 02.'
