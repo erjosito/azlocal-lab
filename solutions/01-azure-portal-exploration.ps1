@@ -49,7 +49,7 @@ try {
     }
 
     Write-Step -What 'Listing Azure Policy assignments that apply at the resource group scope.' -Why 'Azure Arc is useful because governance follows the resources even when they are not running in Azure datacenters.'
-    $policyAssignments = @(Invoke-AzJson -Arguments @('policy', 'assignment', 'list', '--resource-group', $ResourceGroup, '--filter', 'atScope()', '--expand', 'LatestDefinitionVersion,EffectiveDefinitionVersion'))
+    $policyAssignments = @(Invoke-AzJson -Arguments @('policy', 'assignment', 'list', '--resource-group', $ResourceGroup))
     if ($policyAssignments) {
         $policyRows = foreach ($assignment in $policyAssignments) {
             [pscustomobject]@{

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 #####################################################################
@@ -332,12 +332,88 @@ for c in json.load(sys.stdin):
             echo "  Public IP: $FW_PIP"
         fi
 
-        # DNAT rule
-        NAT_RCG=$(az network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "${FW_NAME}-Policy" -n "LocalBox-NAT-RCG" --query "id" -o tsv 2>/dev/null || true)
-        if [[ -n "$NAT_RCG" ]]; then
-            echo "  DNAT rule (RDP): Configured"
-        else
-            echo "  DNAT rule (RDP): Not configured"
+        # Get firewall policy name
+        POLICY_ID=$(az network firewall show -g "$RESOURCE_GROUP" -n "$FW_NAME" --query "firewallPolicy.id" -o tsv 2>/dev/null || true)
+        if [[ -n "$POLICY_ID" ]]; then
+            POLICY_NAME=$(echo "$POLICY_ID" | awk -F'/' '{print $NF}')
+            echo "  Policy: $POLICY_NAME"
+
+            # List all RCGs with their rules
+            RCG_JSON=$(az network firewall policy rule-collection-group list -g "$RESOURCE_GROUP" --policy-name "$POLICY_NAME" -o json 2>/dev/null || true)
+            if [[ -n "$RCG_JSON" ]] && [[ "$RCG_JSON" != "[]" ]]; then
+                echo "  Rule Collection Groups:"
+                echo "$RCG_JSON" | python3 << 'PYTHON_EOF'
+import sys, json
+data = json.load(sys.stdin)
+# Sort by priority
+sorted_data = sorted(data, key=lambda x: x.get('properties', {}).get('priority', 999))
+for rcg in sorted_data:
+    rcg_name = rcg.get('name', 'Unknown')
+    priority = rcg.get('properties', {}).get('priority', 0)
+    print(f"    {rcg_name} (priority {priority}):")
+    
+    rule_collections = rcg.get('properties', {}).get('ruleCollections', [])
+    for rc in rule_collections:
+        rc_name = rc.get('name', 'Unknown')
+        rc_type = rc.get('ruleCollectionType', 'Unknown')
+        print(f"      {rc_name} [{rc_type}]:")
+        
+        rules = rc.get('rules', [])
+        for rule in rules:
+            rule_name = rule.get('name', 'Unknown')
+            
+            if rc_type == "FirewallPolicyNatRuleCollection":
+                # DNAT rules
+                src_addrs = rule.get('sourceAddresses', [])
+                if isinstance(src_addrs, list):
+                    src_addrs = ','.join(src_addrs)
+                dest_ports = rule.get('destinationPorts', [])
+                if isinstance(dest_ports, list):
+                    dest_ports = ','.join(dest_ports)
+                transl_addr = rule.get('translatedAddress', '')
+                transl_port = rule.get('translatedPort', '')
+                print(f"        {rule_name}: {src_addrs} -> :{dest_ports} → {transl_addr}:{transl_port}")
+            
+            elif rc_type == "FirewallPolicyFilterRuleCollection":
+                protocols = rule.get('protocols', [])
+                if protocols and len(protocols) > 0 and isinstance(protocols[0], str):
+                    # Network rule
+                    src_addrs = rule.get('sourceAddresses', [])
+                    if isinstance(src_addrs, list):
+                        src_addrs = ','.join(src_addrs)
+                    dest_addrs = rule.get('destinationAddresses', [])
+                    if isinstance(dest_addrs, list):
+                        dest_addrs = ','.join(dest_addrs)
+                    dest_ports = rule.get('destinationPorts', [])
+                    if isinstance(dest_ports, list):
+                        dest_ports = ','.join(dest_ports)
+                    protos = ','.join(protocols) if isinstance(protocols, list) else str(protocols)
+                    print(f"        {rule_name}: {src_addrs} -> {dest_addrs} :{dest_ports} ({protos})")
+                else:
+                    # Application rule
+                    src_addrs = rule.get('sourceAddresses', [])
+                    if isinstance(src_addrs, list):
+                        src_addrs = ','.join(src_addrs)
+                    target_fqdns = rule.get('targetFqdns', [])
+                    if isinstance(target_fqdns, list):
+                        target_fqdns = ','.join(target_fqdns)
+                    
+                    # Format protocols
+                    proto_strs = []
+                    if protocols:
+                        for proto in protocols:
+                            if isinstance(proto, dict):
+                                pt = proto.get('protocolType', '')
+                                port = proto.get('port', [])
+                                if isinstance(port, list):
+                                    port = ','.join(port)
+                                proto_strs.append(f"{pt}:{port}")
+                            else:
+                                proto_strs.append(str(proto))
+                    protos = '/'.join(proto_strs) if proto_strs else 'Any'
+                    print(f"        {rule_name}: {src_addrs} -> {target_fqdns} ({protos})")
+PYTHON_EOF
+            fi
         fi
 
         # Route table

@@ -109,22 +109,44 @@ try {
         } | ConvertTo-Json -Depth 10
 
         Set-Content -Path $dcrRuleFilePath -Value $dcrPayload -Encoding UTF8
-        $dcr = Invoke-AzJson -Arguments @(
-            'monitor', 'data-collection', 'rule', 'create',
-            '--resource-group', $ResourceGroup,
-            '--location', $location,
-            '--name', $dcrName,
-            '--rule-file', $dcrRuleFilePath
-        )
-        Write-Success "Created DCR '$($dcr.name)'."
 
-        $null = Invoke-AzJson -Arguments @(
-            'monitor', 'data-collection', 'rule', 'association', 'create',
-            '--name', $associationName,
-            '--rule-id', $dcr.id,
-            '--resource', $connectedCluster.id
-        )
-        Write-Success 'Associated the DCR to the Arc-enabled AKS cluster.'
+        # Check if DCR already exists (idempotency)
+        $dcr = Invoke-AzJson -Arguments @(
+            'monitor', 'data-collection', 'rule', 'show',
+            '--resource-group', $ResourceGroup,
+            '--name', $dcrName
+        ) -AllowNotFound
+
+        if (-not $dcr) {
+            $dcr = Invoke-AzJson -Arguments @(
+                'monitor', 'data-collection', 'rule', 'create',
+                '--resource-group', $ResourceGroup,
+                '--location', $location,
+                '--name', $dcrName,
+                '--rule-file', $dcrRuleFilePath
+            )
+            Write-Success "Created DCR '$($dcr.name)'."
+        }
+        else {
+            Write-Success "DCR '$dcrName' already exists. Reusing it."
+        }
+
+        # Check if association already exists (idempotency)
+        $existingAssoc = @(Invoke-AzJson -Arguments @('monitor', 'data-collection', 'rule', 'association', 'list', '--resource', $connectedCluster.id)) |
+            Where-Object { $_.PSObject.Properties['name'] -and $_.name -eq $associationName } |
+            Select-Object -First 1
+        if (-not $existingAssoc) {
+            $null = Invoke-AzJson -Arguments @(
+                'monitor', 'data-collection', 'rule', 'association', 'create',
+                '--name', $associationName,
+                '--rule-id', $dcr.id,
+                '--resource', $connectedCluster.id
+            )
+            Write-Success 'Associated the DCR to the Arc-enabled AKS cluster.'
+        }
+        else {
+            Write-Success "DCR association '$associationName' already exists."
+        }
         $dcrAssociations = @(Invoke-AzJson -Arguments @('monitor', 'data-collection', 'rule', 'association', 'list', '--resource', $connectedCluster.id))
     }
 
