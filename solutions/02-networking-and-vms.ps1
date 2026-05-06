@@ -83,8 +83,8 @@ try {
             '--dns-servers', '192.168.1.254',
             '--ip-allocation-method', 'Static',
             '--ip-pool-type', 'vm',
-            '--ip-pool-start', '192.168.200.10',
-            '--ip-pool-end', '192.168.200.252',
+            '--ip-pool-start', '192.168.200.100',
+            '--ip-pool-end', '192.168.200.199',
             '--vlan', '200'
         )
         $logicalNetwork = Get-LogicalNetwork -ResourceGroup $ResourceGroup -PreferredName $logicalNetworkName -AddressPrefix '192.168.200.0/24'

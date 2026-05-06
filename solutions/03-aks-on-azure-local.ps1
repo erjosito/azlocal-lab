@@ -85,8 +85,8 @@ try {
             '--dns-servers', '192.168.1.254',
             '--ip-allocation-method', 'Static',
             '--ip-pool-type', 'vm',
-            '--ip-pool-start', '10.10.0.10',
-            '--ip-pool-end', '10.10.0.200',
+            '--ip-pool-start', '10.10.0.100',
+            '--ip-pool-end', '10.10.0.199',
             '--vlan', '110'
         )
         $aksNetwork = Get-LogicalNetwork -ResourceGroup $ResourceGroup -PreferredName $aksNetworkName -AddressPrefix '10.10.0.0/24'
