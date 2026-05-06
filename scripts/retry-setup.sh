@@ -69,7 +69,7 @@ $status = @{}
 
 # Check azcopy
 $azcopyVer = try { azcopy --version 2>$null } catch { $null }
-$status["azcopy"] = if ($azcopyVer) { "OK ($azcopyVer)" } else { "Not pre-installed (AzLocal2604+ ships VHDs pre-baked, azcopy not needed)" }
+$status["azcopy"] = if ($azcopyVer) { "OK ($azcopyVer)" } else { "Not installed (OK for AzLocal2604+ images which ship VHDs pre-baked)" }
 
 # Check storage pool
 $pool = Get-StoragePool -FriendlyName AzLocalPool -ErrorAction SilentlyContinue
@@ -272,84 +272,76 @@ if ($errors) {
     echo ""
 
     # Arc-enabled servers
-    ARC_SERVERS=$(az connectedmachine list -g "$RESOURCE_GROUP" --query "[].{name:name, status:status, agentVersion:agentVersion}" -o json 2>/dev/null || echo "[]")
-    ARC_COUNT=$(echo "$ARC_SERVERS" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data))" 2>/dev/null || echo "0")
-    if [[ "$ARC_COUNT" -gt 0 ]]; then
+    ARC_SERVERS=$(az connectedmachine list -g "$RESOURCE_GROUP" --query "[].{name:name, status:status, agentVersion:agentVersion}" -o json 2>/dev/null || true)
+    if [[ -n "$ARC_SERVERS" && "$ARC_SERVERS" != "[]" ]]; then
         echo "Arc-enabled servers:"
         echo "$ARC_SERVERS" | python3 -c "
 import sys, json
 for s in json.load(sys.stdin):
-    print(f\"  {s['name']}: {s['status']} (agent v{s['agentVersion']})\")
-" 2>/dev/null
+    print(f\"  {s['name']}: {s['status']} (agent v{s['agentVersion']})\")"
     else
         echo "Arc-enabled servers: None registered yet"
     fi
 
     # Azure Local cluster
-    CLUSTER=$(az stack-hci cluster list -g "$RESOURCE_GROUP" --query "[0].{name:name, status:status}" -o json 2>/dev/null || echo "null")
-    CLUSTER_NAME=$(echo "$CLUSTER" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['name'] if d else '')" 2>/dev/null || echo "")
-    if [[ -n "$CLUSTER_NAME" ]]; then
-        CLUSTER_STATUS=$(echo "$CLUSTER" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null)
+    CLUSTER=$(az stack-hci cluster list -g "$RESOURCE_GROUP" --query "[0].{name:name, status:status}" -o json 2>/dev/null || true)
+    if [[ -n "$CLUSTER" && "$CLUSTER" != "null" ]]; then
+        CLUSTER_NAME=$(echo "$CLUSTER" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['name'])")
+        CLUSTER_STATUS=$(echo "$CLUSTER" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'])")
         echo "Azure Local cluster: $CLUSTER_NAME — $CLUSTER_STATUS"
     else
         echo "Azure Local cluster: Not yet created"
     fi
 
     # Custom location
-    CUSTOM_LOC=$(az customlocation list -g "$RESOURCE_GROUP" --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>/dev/null || echo "null")
-    CUSTOM_LOC_NAME=$(echo "$CUSTOM_LOC" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['name'] if d else '')" 2>/dev/null || echo "")
-    if [[ -n "$CUSTOM_LOC_NAME" ]]; then
-        CUSTOM_LOC_STATE=$(echo "$CUSTOM_LOC" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('provisioningState','unknown'))" 2>/dev/null)
-        echo "Custom location: $CUSTOM_LOC_NAME — $CUSTOM_LOC_STATE"
+    CUSTOM_LOC=$(az customlocation list -g "$RESOURCE_GROUP" --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>/dev/null || true)
+    if [[ -n "$CUSTOM_LOC" && "$CUSTOM_LOC" != "null" ]]; then
+        CL_NAME=$(echo "$CUSTOM_LOC" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['name'])")
+        CL_STATE=$(echo "$CUSTOM_LOC" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['provisioningState'])")
+        echo "Custom location: $CL_NAME — $CL_STATE"
     else
         echo "Custom location: Not yet created"
     fi
 
-    # Connected Kubernetes clusters
-    K8S=$(az connectedk8s list -g "$RESOURCE_GROUP" --query "[].{name:name, connectivityStatus:connectivityStatus}" -o json 2>/dev/null || echo "[]")
-    K8S_COUNT=$(echo "$K8S" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data))" 2>/dev/null || echo "0")
-    if [[ "$K8S_COUNT" -gt 0 ]]; then
+    # Connected Kubernetes (deployed via exercises, not part of base setup)
+    K8S=$(az connectedk8s list -g "$RESOURCE_GROUP" --query "[].{name:name, connectivityStatus:connectivityStatus}" -o json 2>/dev/null || true)
+    if [[ -n "$K8S" && "$K8S" != "[]" ]]; then
         echo "Connected Kubernetes:"
         echo "$K8S" | python3 -c "
 import sys, json
 for c in json.load(sys.stdin):
-    print(f\"  {c['name']}: {c['connectivityStatus']}\")
-" 2>/dev/null
-    else
-        echo "Connected Kubernetes: None registered yet"
+    print(f\"  {c['name']}: {c['connectivityStatus']}\")"
     fi
 
-    # Arc Gateway (if deployed)
-    SUBSCRIPTION_ID=$(az account show --query id -o tsv 2>/dev/null || echo "")
-    if [[ -n "$SUBSCRIPTION_ID" ]]; then
-        GW_NAME=$(az rest --method get --url "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" --query "value[0].name" -o tsv 2>/dev/null || echo "")
-        if [[ -n "$GW_NAME" ]]; then
-            echo "Arc Gateway: $GW_NAME — deployed"
-        fi
+    # Arc Gateway
+    SUBSCRIPTION_ID=$(az account show --query id -o tsv 2>/dev/null || true)
+    GW=$(az rest --method get --url "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" --query "value[0].name" -o tsv 2>/dev/null || true)
+    if [[ -n "$GW" ]]; then
+        echo "Arc Gateway: $GW — deployed"
     fi
 
-    # Azure Firewall (if deployed)
-    FW_NAME=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
+    # Azure Firewall
+    FW_NAME=$(az resource list -g "$RESOURCE_GROUP" --resource-type "Microsoft.Network/azureFirewalls" --query "[0].name" -o tsv 2>/dev/null || true)
     if [[ -n "$FW_NAME" ]]; then
-        FW_STATE=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].provisioningState" -o tsv 2>/dev/null || echo "unknown")
+        FW_STATE=$(az resource show -g "$RESOURCE_GROUP" --resource-type "Microsoft.Network/azureFirewalls" -n "$FW_NAME" --query "properties.provisioningState" -o tsv 2>/dev/null || true)
         echo "Azure Firewall: $FW_NAME — $FW_STATE"
 
-        # Public IP and DNAT
-        FW_PIP=$(az network public-ip show -g "$RESOURCE_GROUP" -n "${FW_NAME}-pip" --query "ipAddress" -o tsv 2>/dev/null || echo "")
+        # Public IP
+        FW_PIP=$(az network public-ip show -g "$RESOURCE_GROUP" -n "${FW_NAME}-pip" --query "ipAddress" -o tsv 2>/dev/null || true)
         if [[ -n "$FW_PIP" ]]; then
             echo "  Public IP: $FW_PIP"
         fi
-        NAT_RCG=$(az network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" \
-            --policy-name "${FW_NAME}-Policy" -n "LocalBox-NAT-RCG" --query "id" -o tsv 2>/dev/null || echo "")
+
+        # DNAT rule
+        NAT_RCG=$(az network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "${FW_NAME}-Policy" -n "LocalBox-NAT-RCG" --query "id" -o tsv 2>/dev/null || true)
         if [[ -n "$NAT_RCG" ]]; then
             echo "  DNAT rule (RDP): Configured"
         else
             echo "  DNAT rule (RDP): Not configured"
         fi
 
-        # Route table on workload subnet
-        SUBNET_RT=$(az network vnet subnet show -g "$RESOURCE_GROUP" --vnet-name "LocalBox-VNet" \
-            -n "LocalBox-Subnet" --query "routeTable.id" -o tsv 2>/dev/null || echo "")
+        # Route table
+        SUBNET_RT=$(az network vnet subnet show -g "$RESOURCE_GROUP" --vnet-name "LocalBox-VNet" -n "LocalBox-Subnet" --query "routeTable.id" -o tsv 2>/dev/null || true)
         if [[ -n "$SUBNET_RT" ]]; then
             echo "  Route table on LocalBox-Subnet: Yes (traffic via firewall)"
         else

@@ -336,7 +336,7 @@ if ($errors) {
         Write-Host "Custom location: Not yet created" -ForegroundColor DarkGray
     }
 
-    # Connected Kubernetes clusters
+    # Connected Kubernetes clusters (deployed via exercises, not part of base setup)
     $k8s = az connectedk8s list -g $ResourceGroup --query "[].{name:name, connectivityStatus:connectivityStatus}" -o json 2>$null | ConvertFrom-Json
     if ($k8s -and $k8s.Count -gt 0) {
         Write-Host "Connected Kubernetes:" -ForegroundColor White
@@ -344,8 +344,6 @@ if ($errors) {
             $color = if ($c.connectivityStatus -eq "Connected") { "Green" } else { "Yellow" }
             Write-Host "  $($c.name): $($c.connectivityStatus)" -ForegroundColor $color
         }
-    } else {
-        Write-Host "Connected Kubernetes: None registered yet" -ForegroundColor DarkGray
     }
 
     # Arc Gateway (if deployed)
