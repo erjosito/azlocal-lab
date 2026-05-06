@@ -22,6 +22,14 @@ function Write-Step {
     }
 }
 
+function Write-Command {
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [string]$Where = 'Local machine'
+    )
+    Write-Host "  [$Where] $Command" -ForegroundColor DarkYellow
+}
+
 function Write-Info {
     param([string]$Message)
     Write-Host "  $Message" -ForegroundColor Gray
@@ -69,12 +77,16 @@ function Invoke-AzRaw {
         [Parameter(Mandatory)]
         [string[]]$Arguments,
 
-        [switch]$AllowNotFound
+        [switch]$AllowNotFound,
+        [switch]$Silent
     )
 
     Assert-Command -Name 'az' -InstallHint 'Install Azure CLI and run az login first.'
 
     $commandText = "az $($Arguments -join ' ')"
+    if (-not $Silent) {
+        Write-Command -Command $commandText
+    }
     $azArguments = @($Arguments)
 
     if ($azArguments -notcontains '--only-show-errors') {

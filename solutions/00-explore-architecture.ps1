@@ -69,11 +69,19 @@ try {
 
         Write-Host 'Subnets:' -ForegroundColor Green
         $subnetRows = foreach ($subnet in @($vnetDetails.subnets)) {
+            $nsgName = '-'
+            $natName = '-'
+            if ($subnet.PSObject.Properties['networkSecurityGroup'] -and $subnet.networkSecurityGroup) {
+                $nsgName = ($subnet.networkSecurityGroup.id -split '/')[-1]
+            }
+            if ($subnet.PSObject.Properties['natGateway'] -and $subnet.natGateway) {
+                $natName = ($subnet.natGateway.id -split '/')[-1]
+            }
             [pscustomobject]@{
                 Name = $subnet.name
                 Prefix = $subnet.addressPrefix
-                NSG = if ($subnet.networkSecurityGroup) { ($subnet.networkSecurityGroup.id -split '/')[-1] } else { '-' }
-                NatGateway = if ($subnet.natGateway) { ($subnet.natGateway.id -split '/')[-1] } else { '-' }
+                NSG = $nsgName
+                NatGateway = $natName
             }
         }
         Show-TableFromObjects -InputObject $subnetRows -Property @('Name', 'Prefix', 'NSG', 'NatGateway')
@@ -85,9 +93,13 @@ try {
     if ($context.NetworkSecurityGroups) {
         Write-Host 'Network security groups:' -ForegroundColor Green
         $nsgRows = foreach ($nsg in @($context.NetworkSecurityGroups)) {
+            $rulesCount = 0
+            if ($nsg.PSObject.Properties['securityRules']) {
+                $rulesCount = @($nsg.securityRules).Count
+            }
             [pscustomobject]@{
                 Name = $nsg.name
-                SecurityRules = @($nsg.securityRules).Count
+                SecurityRules = $rulesCount
             }
         }
         Show-TableFromObjects -InputObject $nsgRows -Property @('Name', 'SecurityRules')
@@ -97,9 +109,13 @@ try {
     if ($context.NatGateways) {
         Write-Host 'NAT gateways:' -ForegroundColor Green
         $natRows = foreach ($nat in @($context.NatGateways)) {
+            $pipCount = 0
+            if ($nat.PSObject.Properties['publicIpAddresses']) {
+                $pipCount = @($nat.publicIpAddresses).Count
+            }
             [pscustomobject]@{
                 Name = $nat.name
-                PublicIPs = @($nat.publicIpAddresses).Count
+                PublicIPs = $pipCount
             }
         }
         Show-TableFromObjects -InputObject $natRows -Property @('Name', 'PublicIPs')
