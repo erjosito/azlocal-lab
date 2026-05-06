@@ -246,29 +246,46 @@ function Invoke-LocalBoxCommand {
     param(
         [Parameter(Mandatory)][string]$ResourceGroup,
         [Parameter(Mandatory)][string]$ScriptText,
-        [string]$VmName = 'LocalBox-Client'
+        [string]$VmName = 'LocalBox-Client',
+        [int]$MaxRetries = 12,
+        [int]$RetryDelaySeconds = 15
     )
 
-    $result = Invoke-AzJson -Arguments @(
-        'vm', 'run-command', 'invoke',
-        '-g', $ResourceGroup,
-        '-n', $VmName,
-        '--command-id', 'RunPowerShellScript',
-        '--scripts', $ScriptText
-    )
+    for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+        try {
+            $result = Invoke-AzJson -Arguments @(
+                'vm', 'run-command', 'invoke',
+                '-g', $ResourceGroup,
+                '-n', $VmName,
+                '--command-id', 'RunPowerShellScript',
+                '--scripts', $ScriptText
+            )
 
-    if (-not $result) {
-        return ''
+            if (-not $result) {
+                return ''
+            }
+
+            $stdout = (($result.value | Where-Object { $_.code -like '*StdOut*' }).message -join "`n").Trim()
+            $stderr = (($result.value | Where-Object { $_.code -like '*StdErr*' }).message -join "`n").Trim()
+
+            if ($stderr) {
+                Write-Warn $stderr
+            }
+
+            return $stdout
+        }
+        catch {
+            if ($_.Exception.Message -match 'Run command extension execution is in progress' -and $attempt -lt $MaxRetries) {
+                Write-Info "Run-command busy on $VmName, waiting ${RetryDelaySeconds}s... (attempt $attempt/$MaxRetries)"
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+            else {
+                throw
+            }
+        }
     }
 
-    $stdout = (($result.value | Where-Object { $_.code -like '*StdOut*' }).message -join "`n").Trim()
-    $stderr = (($result.value | Where-Object { $_.code -like '*StdErr*' }).message -join "`n").Trim()
-
-    if ($stderr) {
-        Write-Warn $stderr
-    }
-
-    return $stdout
+    throw "Run-command on $VmName did not become available after $MaxRetries attempts."
 }
 
 function Invoke-NestedHostCommand {
