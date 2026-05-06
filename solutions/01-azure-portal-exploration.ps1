@@ -21,10 +21,10 @@ try {
             Name = $bridge.name
             Type = $bridge.type
             Location = $bridge.location
-            ProvisioningState = $bridge.properties.provisioningState
-            Status = $bridge.properties.status
-            Distro = $bridge.properties.distro
-            KubernetesVersion = $bridge.properties.kubernetesVersion
+            ProvisioningState = if ($bridge.properties.PSObject.Properties['provisioningState']) { $bridge.properties.provisioningState } else { '-' }
+            Status = if ($bridge.properties.PSObject.Properties['status']) { $bridge.properties.status } else { '-' }
+            Distro = if ($bridge.properties.PSObject.Properties['distro']) { $bridge.properties.distro } else { '-' }
+            KubernetesVersion = if ($bridge.properties.PSObject.Properties['kubernetesVersion']) { $bridge.properties.kubernetesVersion } else { '-' }
         } | Format-Table -AutoSize | Out-String | Write-Host
         Write-Info 'If this appliance is unavailable, Azure can still see existing resources, but new VM or AKS operations usually stop working.'
     }
