@@ -371,17 +371,17 @@ if ($errors) {
             Write-Host "  Policy: $policyName" -ForegroundColor White
 
             # List all RCGs with their rules
-            $rcgs = az network firewall policy rule-collection-group list -g $ResourceGroup --policy-name $policyName -o json 2>$null | ConvertFrom-Json
+            $rcgs = az network firewall policy rule-collection-group list -g $ResourceGroup --policy-name $policyName -o json 2>$null | ConvertFrom-Json -Depth 20
             if ($rcgs -and $rcgs.Count -gt 0) {
                 Write-Host "  Rule Collection Groups:" -ForegroundColor White
-                foreach ($rcg in $rcgs | Sort-Object { $_.properties.priority }) {
+                foreach ($rcg in $rcgs | Sort-Object { $_.priority }) {
                     $rcgName = $rcg.name
-                    $priority = $rcg.properties.priority
-                    Write-Host "    $rcgName (priority $priority):" -ForegroundColor Cyan
+                    $priority = $rcg.priority
+                    Write-Host "    $rcgName (priority ${priority}):" -ForegroundColor Cyan
 
                     # Process each rule collection in the RCG
-                    if ($rcg.properties.ruleCollections) {
-                        foreach ($rc in $rcg.properties.ruleCollections) {
+                    if ($rcg.ruleCollections) {
+                        foreach ($rc in $rcg.ruleCollections) {
                             $rcName = $rc.name
                             $rcType = $rc.ruleCollectionType
                             Write-Host "      $rcName [$rcType]:" -ForegroundColor Yellow
@@ -389,29 +389,26 @@ if ($errors) {
                             # Display rules based on type
                             foreach ($rule in $rc.rules) {
                                 $ruleName = $rule.name
-                                if ($rcType -eq "FirewallPolicyNatRuleCollection") {
+                                if ($rule.ruleType -eq "NatRule") {
                                     # DNAT rules
-                                    $srcAddrs = if ($rule.sourceAddresses -is [array]) { $rule.sourceAddresses -join "," } else { $rule.sourceAddresses }
-                                    $destPort = $rule.destinationPorts -join ","
+                                    $srcAddrs = ($rule.sourceAddresses -join ",")
+                                    $destPort = ($rule.destinationPorts -join ",")
                                     $translAddr = $rule.translatedAddress
                                     $translPort = $rule.translatedPort
-                                    Write-Host "        ${ruleName}: ${srcAddrs} -> :${destPort} → ${translAddr}:${translPort}" -ForegroundColor Green
-                                } elseif ($rcType -eq "FirewallPolicyFilterRuleCollection") {
-                                    # Network or Application rules
-                                    if ($rule.protocols) {
-                                        # Network rule
-                                        $srcAddrs = if ($rule.sourceAddresses -is [array]) { $rule.sourceAddresses -join "," } else { $rule.sourceAddresses }
-                                        $destAddrs = if ($rule.destinationAddresses -is [array]) { $rule.destinationAddresses -join "," } else { $rule.destinationAddresses }
-                                        $ports = if ($rule.destinationPorts -is [array]) { $rule.destinationPorts -join "," } else { $rule.destinationPorts }
-                                        $protos = if ($rule.protocols -is [array]) { $rule.protocols -join "," } else { $rule.protocols }
-                                        Write-Host "        ${ruleName}: ${srcAddrs} -> ${destAddrs} :${ports} (${protos})" -ForegroundColor Green
-                                    } else {
-                                        # Application rule
-                                        $srcAddrs = if ($rule.sourceAddresses -is [array]) { $rule.sourceAddresses -join "," } else { $rule.sourceAddresses }
-                                        $fqdns = if ($rule.targetFqdns -is [array]) { $rule.targetFqdns -join "," } else { $rule.targetFqdns }
-                                        $protos = $rule.protocols | ForEach-Object { "$($_.protocolType):$($_.port -join ',')" } | Join-String -Separator "/"
-                                        Write-Host "        ${ruleName}: ${srcAddrs} -> ${fqdns} (${protos})" -ForegroundColor Green
-                                    }
+                                    Write-Host "        ${ruleName}: ${srcAddrs} -> :${destPort} -> ${translAddr}:${translPort}" -ForegroundColor Green
+                                } elseif ($rule.ruleType -eq "NetworkRule") {
+                                    # Network rule
+                                    $srcAddrs = ($rule.sourceAddresses -join ",")
+                                    $destAddrs = ($rule.destinationAddresses -join ",")
+                                    $ports = ($rule.destinationPorts -join ",")
+                                    $protos = ($rule.ipProtocols -join ",")
+                                    Write-Host "        ${ruleName}: ${srcAddrs} -> ${destAddrs} :${ports} (${protos})" -ForegroundColor Green
+                                } elseif ($rule.ruleType -eq "ApplicationRule") {
+                                    # Application rule
+                                    $srcAddrs = ($rule.sourceAddresses -join ",")
+                                    $fqdns = ($rule.targetFqdns -join ",")
+                                    $protos = ($rule.protocols | ForEach-Object { "$($_.protocolType):$($_.port)" }) -join "/"
+                                    Write-Host "        ${ruleName}: ${srcAddrs} -> ${fqdns} (${protos})" -ForegroundColor Green
                                 }
                             }
                         }
