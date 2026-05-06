@@ -80,7 +80,20 @@ function Invoke-AzJson {
 
 function Invoke-AzNoOutput {
     param([Parameter(Mandatory)][string[]]$Arguments)
-    [void](Invoke-AzText -Arguments ($Arguments + @("--output", "none")))
+    # az rest has issues with inline JSON bodies on Windows PowerShell (quote stripping).
+    # Work around by writing the body to a temp file and using @file syntax.
+    $bodyIndex = [array]::IndexOf($Arguments, "--body")
+    $tempFile = $null
+    if ($bodyIndex -ge 0 -and ($bodyIndex + 1) -lt $Arguments.Count) {
+        $tempFile = [System.IO.Path]::GetTempFileName()
+        Set-Content -Path $tempFile -Value $Arguments[$bodyIndex + 1] -NoNewline
+        $Arguments[$bodyIndex + 1] = "@$tempFile"
+    }
+    try {
+        [void](Invoke-AzText -Arguments ($Arguments + @("--output", "none")))
+    } finally {
+        if ($tempFile) { Remove-Item $tempFile -ErrorAction SilentlyContinue }
+    }
 }
 
 function Write-Step {
@@ -130,11 +143,11 @@ if ([string]::IsNullOrWhiteSpace($Location)) {
 
 $subscriptionId = Invoke-AzText -Arguments @("account", "show", "--query", "id", "-o", "tsv")
 $policyId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/firewallPolicies/$PolicyName"
-$applicationRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$ApplicationRcgName?api-version=$FirewallPolicyApiVersion"
-$natRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$NatRcgName?api-version=$FirewallPolicyApiVersion"
-$networkRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$NetworkRcgName?api-version=$FirewallPolicyApiVersion"
+$applicationRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${ApplicationRcgName}?api-version=${FirewallPolicyApiVersion}"
+$natRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${NatRcgName}?api-version=${FirewallPolicyApiVersion}"
+$networkRcgUrl = "https://management.azure.com${policyId}/ruleCollectionGroups/${NetworkRcgName}?api-version=${FirewallPolicyApiVersion}"
 $FirewallId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/azureFirewalls/$FirewallName"
-$firewallUrl = "https://management.azure.com$FirewallId?api-version=$FirewallApiVersion"
+$firewallUrl = "https://management.azure.com${FirewallId}?api-version=${FirewallApiVersion}"
 
 Write-Host " Location       : $Location"
 Write-Host " VNet           : $VnetName"
@@ -245,9 +258,10 @@ if (-not $policyExists) {
         }
     } | ConvertTo-Json -Depth 10
 
+    $policyUrl = "https://management.azure.com${policyId}?api-version=${FirewallPolicyApiVersion}"
     Invoke-AzNoOutput -Arguments @(
         "rest", "--method", "put",
-        "--url", $policyId + "?api-version=$FirewallPolicyApiVersion",
+        "--url", $policyUrl,
         "--body", $policyBody
     )
 } else {
@@ -330,11 +344,11 @@ if (-not $clientPrivateIp) {
         Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP → $clientPrivateIp)..."
         $natRcgBody = @{
             properties = @{
-                priority        = 50
+                priority        = 150
                 ruleCollections = @(
                     @{
                         name               = "InboundRDP"
-                        priority           = 100
+                        priority           = 150
                         ruleCollectionType = "FirewallPolicyNatRuleCollection"
                         action             = @{ type = "DNAT" }
                         rules              = @(
