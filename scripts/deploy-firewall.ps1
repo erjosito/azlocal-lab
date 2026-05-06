@@ -118,13 +118,60 @@ if (-not $appRcgExists) {
     Write-Host "Application rule collection group '$ApplicationRcgName' already exists."
 }
 
-# -- Network rule collection group (placeholder) --
+# -- Network rule collection group --
 $networkRcgExists = az network firewall policy rule-collection-group show -g $ResourceGroup `
     --policy-name $PolicyName -n $NetworkRcgName --query "id" -o tsv 2>$null
 if (-not $networkRcgExists) {
     Write-Host "Creating network rule collection group '$NetworkRcgName'..."
     az network firewall policy rule-collection-group create -g $ResourceGroup `
         --policy-name $PolicyName -n $NetworkRcgName --priority 200 -o none
+
+    # DNS — Allow outbound DNS to Azure DNS and external resolvers
+    Write-Host "  Adding DNS rules (UDP/TCP 53)..."
+    az network firewall policy rule-collection-group collection add-filter-collection `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        -n "AllowDNS" --collection-priority 200 --action Allow --rule-type NetworkRule `
+        --rule-name "allow-dns-udp" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "*" --destination-ports 53 --ip-protocols UDP -o none
+    az network firewall policy rule-collection-group collection rule add `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        --collection-name "AllowDNS" --rule-type NetworkRule `
+        -n "allow-dns-tcp" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "*" --destination-ports 53 --ip-protocols TCP -o none
+
+    # NTP — Allow time sync
+    Write-Host "  Adding NTP rule (UDP 123)..."
+    az network firewall policy rule-collection-group collection add-filter-collection `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        -n "AllowNTP" --collection-priority 210 --action Allow --rule-type NetworkRule `
+        --rule-name "allow-ntp" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "*" --destination-ports 123 --ip-protocols UDP -o none
+
+    # Azure services — Allow HTTPS to AzureCloud service tag (Arc, HCI, etc.)
+    Write-Host "  Adding Azure service rules (TCP 443 to AzureCloud)..."
+    az network firewall policy rule-collection-group collection add-filter-collection `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        -n "AllowAzureServices" --collection-priority 220 --action Allow --rule-type NetworkRule `
+        --rule-name "allow-azure-https" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "AzureCloud" --destination-ports 443 --ip-protocols TCP -o none
+    az network firewall policy rule-collection-group collection rule add `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        --collection-name "AllowAzureServices" --rule-type NetworkRule `
+        -n "allow-azure-smb" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "AzureCloud" --destination-ports 445 --ip-protocols TCP -o none
+    az network firewall policy rule-collection-group collection rule add `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        --collection-name "AllowAzureServices" --rule-type NetworkRule `
+        -n "allow-azure-quic" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "AzureCloud" --destination-ports 443 --ip-protocols UDP -o none
+
+    # Azure Monitor — Allow HTTPS to AzureMonitor service tag
+    Write-Host "  Adding Azure Monitor rule..."
+    az network firewall policy rule-collection-group collection rule add `
+        -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
+        --collection-name "AllowAzureServices" --rule-type NetworkRule `
+        -n "allow-azure-monitor" --source-addresses "172.16.1.0/24" `
+        --destination-addresses "AzureMonitor" --destination-ports 443 --ip-protocols TCP -o none
 } else {
     Write-Host "Network rule collection group '$NetworkRcgName' already exists."
 }

@@ -193,6 +193,9 @@ if [[ -z "$NETWORK_RCG_EXISTS" ]]; then
         -n "$NETWORK_RCG_NAME" \
         --priority 200 \
         --output none >/dev/null
+
+    # DNS - Allow outbound DNS
+    echo "  Adding DNS rules (UDP/TCP 53)..."
     az_text network firewall policy rule-collection-group collection add-filter-collection \
         -g "$RESOURCE_GROUP" \
         --policy-name "$POLICY_NAME" \
@@ -201,12 +204,27 @@ if [[ -z "$NETWORK_RCG_EXISTS" ]]; then
         --collection-priority 200 \
         --action Allow \
         --rule-type NetworkRule \
-        --rule-name "allow-dns" \
-        --source-addresses "*" \
+        --rule-name "allow-dns-udp" \
+        --source-addresses "172.16.1.0/24" \
         --destination-addresses "*" \
         --destination-ports 53 \
-        --ip-protocols UDP TCP \
+        --ip-protocols UDP \
         --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection rule add \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        --collection-name "AllowDNS" \
+        --rule-type NetworkRule \
+        -n "allow-dns-tcp" \
+        --source-addresses "172.16.1.0/24" \
+        --destination-addresses "*" \
+        --destination-ports 53 \
+        --ip-protocols TCP \
+        --output none >/dev/null
+
+    # NTP - Allow time sync
+    echo "  Adding NTP rule (UDP 123)..."
     az_text network firewall policy rule-collection-group collection add-filter-collection \
         -g "$RESOURCE_GROUP" \
         --policy-name "$POLICY_NAME" \
@@ -216,38 +234,63 @@ if [[ -z "$NETWORK_RCG_EXISTS" ]]; then
         --action Allow \
         --rule-type NetworkRule \
         --rule-name "allow-ntp" \
-        --source-addresses "*" \
+        --source-addresses "172.16.1.0/24" \
         --destination-addresses "*" \
         --destination-ports 123 \
         --ip-protocols UDP \
         --output none >/dev/null
+
+    # Azure services - Allow HTTPS, SMB, QUIC to AzureCloud service tag
+    echo "  Adding Azure service rules (TCP 443/445, UDP 443 to AzureCloud)..."
     az_text network firewall policy rule-collection-group collection add-filter-collection \
         -g "$RESOURCE_GROUP" \
         --policy-name "$POLICY_NAME" \
         --rule-collection-group-name "$NETWORK_RCG_NAME" \
-        -n "AllowSMBInternal" \
+        -n "AllowAzureServices" \
         --collection-priority 220 \
         --action Allow \
         --rule-type NetworkRule \
-        --rule-name "allow-smb-internal" \
-        --source-addresses 172.16.0.0/12 10.0.0.0/8 \
-        --destination-addresses 10.0.0.0/8 \
-        --destination-ports 445 \
+        --rule-name "allow-azure-https" \
+        --source-addresses "172.16.1.0/24" \
+        --destination-addresses "AzureCloud" \
+        --destination-ports 443 \
         --ip-protocols TCP \
         --output none >/dev/null
-    az_text network firewall policy rule-collection-group collection add-filter-collection \
+    az_text network firewall policy rule-collection-group collection rule add \
         -g "$RESOURCE_GROUP" \
         --policy-name "$POLICY_NAME" \
         --rule-collection-group-name "$NETWORK_RCG_NAME" \
-        -n "AllowQUICInternal" \
-        --collection-priority 230 \
-        --action Allow \
+        --collection-name "AllowAzureServices" \
         --rule-type NetworkRule \
-        --rule-name "allow-quic-internal" \
-        --source-addresses 172.16.0.0/12 10.0.0.0/8 \
-        --destination-addresses 10.0.0.0/8 \
+        -n "allow-azure-smb" \
+        --source-addresses "172.16.1.0/24" \
+        --destination-addresses "AzureCloud" \
+        --destination-ports 445 \
+        --ip-protocols TCP \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection rule add \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        --collection-name "AllowAzureServices" \
+        --rule-type NetworkRule \
+        -n "allow-azure-quic" \
+        --source-addresses "172.16.1.0/24" \
+        --destination-addresses "AzureCloud" \
         --destination-ports 443 \
         --ip-protocols UDP \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection rule add \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        --collection-name "AllowAzureServices" \
+        --rule-type NetworkRule \
+        -n "allow-azure-monitor" \
+        --source-addresses "172.16.1.0/24" \
+        --destination-addresses "AzureMonitor" \
+        --destination-ports 443 \
+        --ip-protocols TCP \
         --output none >/dev/null
 else
     echo "Network rule collection group '$NETWORK_RCG_NAME' already exists."
