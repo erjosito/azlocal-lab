@@ -32,6 +32,7 @@ $FirewallSubnetPrefix = "172.16.2.0/26"
 $PublicIpName = "$FirewallName-pip"
 $PolicyName = "$FirewallName-Policy"
 $ApplicationRcgName = "LocalBox-App-RCG"
+$NatRcgName = "LocalBox-NAT-RCG"
 $NetworkRcgName = "LocalBox-Network-RCG"
 $FirewallIpConfigName = "LocalBoxFirewallIpConfig"
 $RouteTableName = "LocalBox-FW-RouteTable"
@@ -130,6 +131,7 @@ if ([string]::IsNullOrWhiteSpace($Location)) {
 $subscriptionId = Invoke-AzText -Arguments @("account", "show", "--query", "id", "-o", "tsv")
 $policyId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/firewallPolicies/$PolicyName"
 $applicationRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$ApplicationRcgName?api-version=$FirewallPolicyApiVersion"
+$natRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$NatRcgName?api-version=$FirewallPolicyApiVersion"
 $networkRcgUrl = "https://management.azure.com$policyId/ruleCollectionGroups/$NetworkRcgName?api-version=$FirewallPolicyApiVersion"
 $FirewallId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/azureFirewalls/$FirewallName"
 $firewallUrl = "https://management.azure.com$FirewallId?api-version=$FirewallApiVersion"
@@ -218,6 +220,14 @@ if (-not $publicIpId) {
     Write-Host "Public IP '$PublicIpName' already exists."
 }
 
+$firewallPublicIpAddress = Invoke-AzText -Arguments @(
+    "network", "public-ip", "show",
+    "-g", $ResourceGroup,
+    "-n", $PublicIpName,
+    "--query", "ipAddress",
+    "-o", "tsv"
+)
+
 Write-Step "Ensuring firewall policy"
 $policyExists = Invoke-AzText -Arguments @(
     "resource", "show",
@@ -301,6 +311,55 @@ if (-not $networkRcgExists) {
     Write-Host "Network rule collection group '$NetworkRcgName' already exists."
 }
 
+Write-Step "Ensuring DNAT rule for RDP access"
+$clientPrivateIp = Invoke-AzText -Arguments @(
+    "vm", "show",
+    "-g", $ResourceGroup,
+    "-n", "LocalBox-Client",
+    "--query", "privateIps",
+    "-d",
+    "-o", "tsv"
+) -AllowFailure
+
+if (-not $clientPrivateIp) {
+    Write-Host "  WARNING: Could not find LocalBox-Client private IP. Skipping DNAT rule." -ForegroundColor Yellow
+} else {
+    Write-Host "  LocalBox-Client private IP: $clientPrivateIp"
+    $natRcgExists = Invoke-AzText -Arguments @("rest", "--method", "get", "--url", $natRcgUrl) -AllowFailure
+    if (-not $natRcgExists) {
+        Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP → $clientPrivateIp)..."
+        $natRcgBody = @{
+            properties = @{
+                priority        = 50
+                ruleCollections = @(
+                    @{
+                        name               = "InboundRDP"
+                        priority           = 100
+                        ruleCollectionType = "FirewallPolicyNatRuleCollection"
+                        action             = @{ type = "DNAT" }
+                        rules              = @(
+                            @{
+                                name                = "RDP-to-LocalBox-Client"
+                                ruleType            = "NatRule"
+                                sourceAddresses     = @("*")
+                                destinationAddresses = @($firewallPublicIpAddress)
+                                destinationPorts    = @("3389")
+                                ipProtocols         = @("TCP")
+                                translatedAddress   = $clientPrivateIp
+                                translatedPort      = "3389"
+                            }
+                        )
+                    }
+                )
+            }
+        } | ConvertTo-Json -Depth 20
+
+        Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $natRcgUrl, "--body", $natRcgBody)
+    } else {
+        Write-Host "  NAT rule collection group '$NatRcgName' already exists."
+    }
+}
+
 Write-Step "Ensuring Azure Firewall"
 $firewallBody = @{
     location   = $Location
@@ -323,13 +382,6 @@ $firewallBody = @{
 Invoke-AzNoOutput -Arguments @("rest", "--method", "put", "--url", $firewallUrl, "--body", $firewallBody)
 
 $firewallPrivateIp = Wait-ForFirewallPrivateIp
-$firewallPublicIp = Invoke-AzText -Arguments @(
-    "network", "public-ip", "show",
-    "-g", $ResourceGroup,
-    "-n", $PublicIpName,
-    "--query", "ipAddress",
-    "-o", "tsv"
-)
 
 Write-Step "Ensuring Log Analytics workspace and diagnostics"
 $workspace = Invoke-AzJson -Arguments @("monitor", "log-analytics", "workspace", "list", "-g", $ResourceGroup, "-o", "json")
@@ -424,8 +476,14 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Azure Firewall Ready" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Firewall private IP : $firewallPrivateIp"
-Write-Host " Firewall public IP  : $firewallPublicIp"
+Write-Host " Firewall public IP  : $firewallPublicIpAddress"
 Write-Host " Route table         : $RouteTableName"
 Write-Host " Workspace           : $($matchingWorkspace.name)"
 Write-Host ""
 Write-Host "Traffic from $WorkloadSubnetName now uses Azure Firewall as its default egress path."
+if ($clientPrivateIp) {
+    Write-Host ""
+    Write-Host "RDP access via DNAT:" -ForegroundColor Cyan
+    Write-Host "  mstsc /v:$firewallPublicIpAddress"
+    Write-Host "  (Firewall forwards port 3389 → $clientPrivateIp)"
+}
