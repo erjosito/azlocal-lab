@@ -46,7 +46,7 @@ Write-Host ""
 $diagTempFile = Join-Path ([System.IO.Path]::GetTempPath()) "localbox-diag-$(Get-Random).ps1"
 @'
 $azcopyVer = try { azcopy --version 2>$null } catch { $null }
-if ($azcopyVer) { Write-Output "azcopy: OK ($azcopyVer)" } else { Write-Output "azcopy: MISSING (normal during early Bootstrap - installed via Chocolatey before VHD download starts)" }
+if ($azcopyVer) { Write-Output "azcopy: OK ($azcopyVer)" } else { Write-Output "azcopy: Not installed (OK for AzLocal2604+ images which ship VHDs pre-baked)" }
 
 $pool = Get-StoragePool -FriendlyName AzLocalPool -ErrorAction SilentlyContinue
 if ($pool) { Write-Output "StoragePool: $($pool.OperationalStatus) ($($pool.HealthStatus))" } else { Write-Output "StoragePool: NOT FOUND" }
