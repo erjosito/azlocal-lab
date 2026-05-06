@@ -98,11 +98,14 @@ function Write-Section {
     param([string]$Title)
     Write-Host ""
     Write-Host $Title -ForegroundColor Cyan
-    Write-Host ($Title.ToCharArray() | ForEach-Object { '-' } | Out-String).Trim()
+    Write-Host ('-' * $Title.Length)
 }
 
 function Write-ResultTable {
-    param([object[]]$Rows)
+    param(
+        [object[]]$Rows,
+        [string[]]$Columns
+    )
 
     if (-not $Rows -or @($Rows).Count -eq 0) {
         Write-Host "  No results found." -ForegroundColor DarkGray
@@ -119,7 +122,12 @@ function Write-ResultTable {
             $_ | Select-Object -Property * -ExcludeProperty TableName
         }
     }
-    $cleaned | Format-Table -AutoSize | Out-String | Write-Host
+
+    if ($Columns) {
+        $cleaned | Select-Object $Columns | Format-Table -AutoSize | Out-String | Write-Host
+    } else {
+        $cleaned | Format-Table -AutoSize | Out-String | Write-Host
+    }
 }
 
 $workspaceList = Invoke-AzJson -Arguments @("monitor", "log-analytics", "workspace", "list", "-g", $ResourceGroup, "-o", "json")
@@ -274,13 +282,13 @@ AzureDiagnostics
 "@
 
         Write-Section "Allow/Deny Summary"
-        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $summaryQuery)
+        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $summaryQuery) -Columns @('RuleCategory','Action_s','Hits')
 
         Write-Section "Top FQDNs (Application Rules)"
-        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $fqdnQuery)
+        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $fqdnQuery) -Columns @('Fqdn_s','Action_s','Hits')
 
         Write-Section "Top Source IPs"
-        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $sourceQuery)
+        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $sourceQuery) -Columns @('SourceIP','Action_s','Hits')
     }
     "denied" {
         $deniedQuery = @"
@@ -299,7 +307,7 @@ AzureDiagnostics
 "@
 
         Write-Section "Denied Traffic"
-        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $deniedQuery)
+        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $deniedQuery) -Columns @('SourceIP','Destination','Port','Proto','RuleCategory','Hits')
     }
     "rules" {
         $rulesQuery = @"
@@ -321,6 +329,6 @@ AzureDiagnostics
 "@
 
         Write-Section "Suggested Rules From Denied Traffic"
-        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $rulesQuery)
+        Write-ResultTable (Invoke-WorkspaceQuery -WorkspaceId $workspace.customerId -Query $rulesQuery) -Columns @('Hits','RuleType','SuggestedRule')
     }
 }

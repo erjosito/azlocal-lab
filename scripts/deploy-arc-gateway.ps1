@@ -382,9 +382,11 @@ $gatewayCliMode = Get-GatewayCliMode
 $gateway = Get-Gateway -Name $GatewayName -Rg $ResourceGroup -CliMode $gatewayCliMode
 
 if ($Remove) {
-    Write-Host "Switching Arc agents back to direct connectivity..." -ForegroundColor Yellow
-    Update-ArcGatewayAssociation -Rg $ResourceGroup -Nodes $nestedNodes -GatewayResourceId "" -Detach $true
-    Invoke-ArcAgentConfiguration -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -ConnectionType "direct" -GatewayResourceId "" -Password $NestedAdminPassword
+    # NOTE: Attaching/detaching Arc Gateway to an existing Azure Local cluster is not yet supported.
+    # Only the gateway resource itself is deleted; agent configuration is not changed.
+    # Write-Host "Switching Arc agents back to direct connectivity..." -ForegroundColor Yellow
+    # Update-ArcGatewayAssociation -Rg $ResourceGroup -Nodes $nestedNodes -GatewayResourceId "" -Detach $true
+    # Invoke-ArcAgentConfiguration -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -ConnectionType "direct" -GatewayResourceId "" -Password $NestedAdminPassword
 
     if ($gateway) {
         Write-Host "Deleting Arc Gateway '$GatewayName'..." -ForegroundColor Yellow
@@ -392,13 +394,12 @@ if ($Remove) {
         Wait-ForGatewayDeletion -ResourceId $gateway.id
         Write-Host "Arc Gateway deleted." -ForegroundColor Green
     } else {
-        Write-Host "Arc Gateway '$GatewayName' was not found. Agent configuration was still reset to direct mode." -ForegroundColor Yellow
+        Write-Host "Arc Gateway '$GatewayName' was not found." -ForegroundColor Yellow
     }
 
     Write-Host ""
-    Write-Host "Validation commands:" -ForegroundColor Cyan
-    Write-Host "  azcmagent show"
-    Write-Host "  azcmagent check"
+    Write-Host "Note: Arc Gateway association with existing Azure Local clusters is not yet supported." -ForegroundColor Yellow
+    Write-Host "      The gateway resource has been removed but agent configuration was not changed." -ForegroundColor Yellow
     exit 0
 }
 
@@ -428,19 +429,29 @@ Write-Host " Location            : $Location"
 Write-Host ""
 
 if ($Configure) {
-    Test-AgentVersion -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -Password $NestedAdminPassword
-    Write-Host ""
-    Write-Host "Associating the Arc resources and configuring the agents to use the gateway..." -ForegroundColor Cyan
-    Update-ArcGatewayAssociation -Rg $ResourceGroup -Nodes $nestedNodes -GatewayResourceId $gateway.id -Detach $false
-    Invoke-ArcAgentConfiguration -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -ConnectionType "gateway" -GatewayResourceId $gateway.id -Password $NestedAdminPassword
+    # NOTE: Attaching Arc Gateway to an existing Azure Local cluster is not yet supported.
+    # The gateway can only be associated at cluster registration time.
+    # When this feature becomes available, uncomment the lines below.
+    # Test-AgentVersion -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -Password $NestedAdminPassword
+    # Write-Host ""
+    # Write-Host "Associating the Arc resources and configuring the agents to use the gateway..." -ForegroundColor Cyan
+    # Update-ArcGatewayAssociation -Rg $ResourceGroup -Nodes $nestedNodes -GatewayResourceId $gateway.id -Detach $false
+    # Invoke-ArcAgentConfiguration -Rg $ResourceGroup -ClientVm $clientVmName -Nodes $nestedNodes -ConnectionType "gateway" -GatewayResourceId $gateway.id -Password $NestedAdminPassword
 
     Write-Host ""
-    Write-Host "Validation commands:" -ForegroundColor Cyan
+    Write-Host "WARNING: Arc Gateway association with existing Azure Local clusters is not yet supported." -ForegroundColor Yellow
+    Write-Host "         The gateway resource has been created but cannot be attached to the cluster." -ForegroundColor Yellow
+    Write-Host "         This feature is expected in a future Azure Local update." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Gateway details:" -ForegroundColor Cyan
     Write-Host "  az arcgateway show --name $GatewayName --resource-group $ResourceGroup"
-    Write-Host "  azcmagent show"
-    Write-Host "  azcmagent check"
 } else {
-    Show-ManualConfigurationInstructions -Rg $ResourceGroup -GatewayResourceId $gateway.id
+    Write-Host ""
+    Write-Host "Arc Gateway created successfully." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "NOTE: Attaching this gateway to an existing Azure Local cluster is not yet supported." -ForegroundColor Yellow
+    Write-Host "      Arc Gateway can only be configured at cluster registration time." -ForegroundColor Yellow
+    Write-Host "      This script creates the gateway resource for when the feature becomes available." -ForegroundColor Yellow
 }
 
 Write-Host ""

@@ -260,9 +260,11 @@ GATEWAY_CLI_MODE=$(get_gateway_cli_mode)
 GATEWAY_JSON=$(get_gateway_json "$GATEWAY_NAME" "$RESOURCE_GROUP")
 
 if [[ "$REMOVE" == true ]]; then
-    echo "Switching Arc agents back to direct connectivity..."
-    update_arcgateway_settings "null"
-    invoke_agent_configuration "direct" ""
+    # NOTE: Attaching/detaching Arc Gateway to an existing Azure Local cluster is not yet supported.
+    # Only the gateway resource itself is deleted; agent configuration is not changed.
+    # echo "Switching Arc agents back to direct connectivity..."
+    # update_arcgateway_settings "null"
+    # invoke_agent_configuration "direct" ""
 
     if [[ -n "$GATEWAY_JSON" ]]; then
         GATEWAY_ID=$(get_gateway_value "$GATEWAY_NAME" "$RESOURCE_GROUP" id)
@@ -272,13 +274,12 @@ if [[ "$REMOVE" == true ]]; then
         run_az resource wait --ids "$GATEWAY_ID" --deleted --interval 15 --timeout 900 --only-show-errors >/dev/null
         echo "Arc Gateway deleted."
     else
-        echo "Arc Gateway '$GATEWAY_NAME' was not found. Agent configuration was still reset to direct mode."
+        echo "Arc Gateway '$GATEWAY_NAME' was not found."
     fi
 
     echo ""
-    echo "Validation commands:"
-    echo "  azcmagent show"
-    echo "  azcmagent check"
+    echo "Note: Arc Gateway association with existing Azure Local clusters is not yet supported."
+    echo "      The gateway resource has been removed but agent configuration was not changed."
     exit 0
 fi
 
