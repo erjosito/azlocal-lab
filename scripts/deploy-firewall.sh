@@ -259,9 +259,26 @@ if [[ -z "$CLIENT_PRIVATE_IP" ]]; then
     echo "WARNING: Could not find LocalBox-Client private IP. Skipping DNAT rule."
 else
     echo "LocalBox-Client private IP: $CLIENT_PRIVATE_IP"
+
+    # Auto-detect caller's public IP for source restriction
+    MY_PUBLIC_IP=$(curl -s --max-time 5 https://ifconfig.me/ip 2>/dev/null || echo "")
+    DNAT_SOURCE="*"
+    if [[ -n "$MY_PUBLIC_IP" ]]; then
+        echo "  Your public IP: $MY_PUBLIC_IP"
+        read -rp "  Restrict DNAT source to $MY_PUBLIC_IP? [Y/n]: " CONFIRM_IP
+        CONFIRM_IP="${CONFIRM_IP:-Y}"
+        if [[ "$CONFIRM_IP" =~ ^[Yy] ]]; then
+            DNAT_SOURCE="$MY_PUBLIC_IP"
+        else
+            echo "  Using '*' (any source). Consider restricting later for security."
+        fi
+    else
+        echo "  Could not detect public IP. Using '*' (any source)."
+    fi
+
     NAT_RCG_EXISTS=$(az_text network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "$POLICY_NAME" -n "$NAT_RCG_NAME" --query id -o tsv 2>/dev/null || true)
     if [[ -z "$NAT_RCG_EXISTS" ]]; then
-        echo "Creating NAT rule collection group '$NAT_RCG_NAME'..."
+        echo "Creating NAT rule collection group '$NAT_RCG_NAME' (RDP -> $CLIENT_PRIVATE_IP, source: $DNAT_SOURCE)..."
         az_text network firewall policy rule-collection-group create \
             -g "$RESOURCE_GROUP" \
             --policy-name "$POLICY_NAME" \
@@ -276,7 +293,7 @@ else
             --collection-priority 150 \
             --action DNAT \
             --rule-name "RDP-to-LocalBox-Client" \
-            --source-addresses "*" \
+            --source-addresses "$DNAT_SOURCE" \
             --destination-addresses "$FIREWALL_PUBLIC_IP" \
             --destination-ports 3389 \
             --ip-protocols TCP \

@@ -137,17 +137,34 @@ if (-not $clientPrivateIp) {
     Write-Host "  WARNING: Could not find LocalBox-Client private IP. Skipping DNAT rule." -ForegroundColor Yellow
 } else {
     Write-Host "  LocalBox-Client private IP: $clientPrivateIp"
+
+    # Auto-detect caller's public IP for source restriction
+    $myPublicIp = try { (Invoke-RestMethod -Uri "https://ifconfig.me/ip" -TimeoutSec 5).Trim() } catch { $null }
+    if ($myPublicIp) {
+        Write-Host "  Your public IP: $myPublicIp"
+        $confirmIp = Read-Host "  Restrict DNAT source to $myPublicIp? [Y/n]"
+        if ([string]::IsNullOrWhiteSpace($confirmIp) -or $confirmIp -match '^[Yy]') {
+            $dnatSourceAddress = $myPublicIp
+        } else {
+            $dnatSourceAddress = "*"
+            Write-Host "  Using '*' (any source). Consider restricting later for security." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Could not detect public IP. Using '*' (any source)." -ForegroundColor Yellow
+        $dnatSourceAddress = "*"
+    }
+
     $natRcgExists = az network firewall policy rule-collection-group show -g $ResourceGroup `
         --policy-name $PolicyName -n $NatRcgName --query "id" -o tsv 2>$null
     if (-not $natRcgExists) {
-        Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP -> $clientPrivateIp)..."
+        Write-Host "  Creating NAT rule collection group '$NatRcgName' (RDP -> $clientPrivateIp, source: $dnatSourceAddress)..."
         az network firewall policy rule-collection-group create -g $ResourceGroup `
             --policy-name $PolicyName -n $NatRcgName --priority 150 -o none
         az network firewall policy rule-collection-group collection add-nat-collection `
             -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NatRcgName `
             -n "InboundRDP" --collection-priority 150 --action DNAT `
             --rule-name "RDP-to-LocalBox-Client" `
-            --source-addresses "*" `
+            --source-addresses $dnatSourceAddress `
             --destination-addresses $firewallPublicIpAddress `
             --destination-ports 3389 `
             --ip-protocols TCP `
