@@ -93,6 +93,12 @@ function Invoke-AzRaw {
         $azArguments += '--only-show-errors'
     }
 
+    # On Windows, az.cmd passes args through cmd.exe which chokes on unquoted parentheses.
+    # Wrap any argument containing parentheses in double quotes.
+    $azArguments = $azArguments | ForEach-Object {
+        if ($_ -match '[()]' -and $_ -notmatch '^".*"$') { "`"$_`"" } else { $_ }
+    }
+
     $output = & az @azArguments 2>&1
     $exitCode = $LASTEXITCODE
     $text = ($output | ForEach-Object { "$_" }) -join "`n"
