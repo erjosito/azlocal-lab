@@ -145,11 +145,10 @@ Run one of these commands:
 If you do **not** use `-Configure`, the script prints the manual steps. Those steps do two things:
 
 1. Associate the Arc-enabled server resources with the Arc Gateway resource in Azure (ARM-level)
-2. Reconfigure the local agent on `AzLHOST1` and `AzLHOST2`:
-   - `azcmagent config set connection.type gateway`
-   - `Restart-Service himds`
-   
-   > 💡 You do **not** need to set `connection.gateway-resource-id` locally — the agent picks up the gateway URL automatically from the ARM association created in step 1.
+2. Reconfigure the local agent on `AzLHOST1` and `AzLHOST2` (the agent picks up the gateway configuration automatically from the ARM association)
+
+> ⚠️ **Note:** Manual `azcmagent config set` commands to switch connection type are not
+> supported for Azure Local clusters. The gateway must be configured at registration time.
 
 ### Verification
 
@@ -325,12 +324,8 @@ If `azcmagent check` fails after switching to gateway mode:
 
 1. Verify the gateway resource is in `Succeeded` state
 2. Ensure the firewall allows traffic to `*.gw.arc.azure.com`
-3. Verify the gateway resource ID is set correctly: `azcmagent config get connection.gateway-resource-id`
-4. If stuck, revert to direct mode:
-   ```powershell
-   azcmagent config set connection.type direct
-   Restart-Service himds
-   ```
+3. Verify the gateway association exists at the ARM level (check the Arc server resource properties in the portal)
+4. If agents lose connectivity, check firewall rules — do not attempt manual `azcmagent config` changes on Azure Local clusters
 
 ---
 
