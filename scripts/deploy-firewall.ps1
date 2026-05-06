@@ -218,17 +218,42 @@ $workspaces = az monitor log-analytics workspace list -g $ResourceGroup -o json 
 $matchingWorkspace = $workspaces | Where-Object { $_.name -like "*Workspace*" } | Select-Object -First 1
 
 if (-not $matchingWorkspace) {
+    $matchingWorkspace = $workspaces | Select-Object -First 1
+}
+if (-not $matchingWorkspace) {
     Write-Host "No matching workspace found. Creating '$FallbackWorkspaceName'..."
-    az monitor log-analytics workspace create -g $ResourceGroup -n $FallbackWorkspaceName -l $Location -o none
-    $matchingWorkspace = az monitor log-analytics workspace show -g $ResourceGroup -n $FallbackWorkspaceName -o json | ConvertFrom-Json
+    az monitor log-analytics workspace create -g $ResourceGroup -n $FallbackWorkspaceName -l $Location -o none --only-show-errors
+    $matchingWorkspace = az monitor log-analytics workspace show -g $ResourceGroup -n $FallbackWorkspaceName -o json --only-show-errors | ConvertFrom-Json
 } else {
     Write-Host "Using Log Analytics workspace '$($matchingWorkspace.name)'."
 }
 
-$firewallId = az network firewall show -g $ResourceGroup -n $FirewallName --query "id" -o tsv
-az monitor diagnostic-settings create --resource $firewallId -n $DiagSettingName `
-    --workspace $matchingWorkspace.id --export-to-resource-specific true `
-    --logs "[{category:AZFWApplicationRule,enabled:true},{category:AZFWNetworkRule,enabled:true},{category:AZFWDnsQuery,enabled:true}]" -o none 2>$null
+$firewallId = az network firewall show -g $ResourceGroup -n $FirewallName --query "id" -o tsv --only-show-errors
+
+# Check if diagnostic settings already exist
+$existingDiag = az monitor diagnostic-settings list --resource $firewallId -o json --only-show-errors 2>$null | ConvertFrom-Json
+$diagExists = $false
+if ($existingDiag -and $existingDiag.value) {
+    $diagExists = ($existingDiag.value | Where-Object { $_.name -eq $DiagSettingName }).Count -gt 0
+} elseif ($existingDiag -is [array]) {
+    $diagExists = ($existingDiag | Where-Object { $_.name -eq $DiagSettingName }).Count -gt 0
+}
+
+if (-not $diagExists) {
+    Write-Host "Creating diagnostic settings '$DiagSettingName' (all logs -> $($matchingWorkspace.name))..."
+    $logsJson = '[{\"categoryGroup\":\"allLogs\",\"enabled\":true}]'
+    $metricsJson = '[{\"category\":\"AllMetrics\",\"enabled\":true}]'
+    az monitor diagnostic-settings create --resource $firewallId -n $DiagSettingName `
+        --workspace $matchingWorkspace.id --export-to-resource-specific true `
+        --logs $logsJson --metrics $metricsJson -o none --only-show-errors
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: Failed to create diagnostic settings. Firewall logs may not flow." -ForegroundColor Yellow
+    } else {
+        Write-Host "  [OK] Diagnostic settings created. Logs will flow within 5-10 minutes."
+    }
+} else {
+    Write-Host "Diagnostic settings '$DiagSettingName' already exist."
+}
 
 # -- Route table --
 Write-Step "Ensuring route table and subnet association"

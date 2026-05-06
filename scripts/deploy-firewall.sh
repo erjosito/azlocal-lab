@@ -352,7 +352,7 @@ fi
 echo "  Firewall private IP: $FIREWALL_PRIVATE_IP"
 
 step "Ensuring Log Analytics workspace and diagnostics"
-WORKSPACE_INFO=$(az_text monitor log-analytics workspace list -g "$RESOURCE_GROUP" -o json | python3 -c 'import sys, json; items = json.load(sys.stdin); match = next((w for w in items if "Workspace" in w.get("name", "")), None); print("{}\t{}".format(match["name"], match["id"]) if match else "")')
+WORKSPACE_INFO=$(az_text monitor log-analytics workspace list -g "$RESOURCE_GROUP" -o json | python3 -c 'import sys, json; items = json.load(sys.stdin); match = next((w for w in items if "Workspace" in w.get("name", "")), items[0] if items else None); print("{}\t{}".format(match["name"], match["id"]) if match else "")')
 if [[ -z "$WORKSPACE_INFO" ]]; then
     echo "No matching workspace found. Creating '$FALLBACK_WORKSPACE_NAME'..."
     az_text monitor log-analytics workspace create \
@@ -366,15 +366,29 @@ else
 fi
 IFS=$'\t' read -r WORKSPACE_NAME WORKSPACE_ARM_ID <<< "$WORKSPACE_INFO"
 
-LOGS_JSON='[{"category":"AZFWApplicationRule","enabled":true,"retentionPolicy":{"enabled":false,"days":0}},{"category":"AZFWNetworkRule","enabled":true,"retentionPolicy":{"enabled":false,"days":0}},{"category":"AZFWDnsQuery","enabled":true,"retentionPolicy":{"enabled":false,"days":0}}]'
 FIREWALL_ID=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query id -o tsv)
-az_text monitor diagnostic-settings create \
-    --resource "$FIREWALL_ID" \
-    -n "$DIAG_SETTING_NAME" \
-    --workspace "$WORKSPACE_ARM_ID" \
-    --export-to-resource-specific true \
-    --logs "$LOGS_JSON" \
-    --output none >/dev/null 2>/dev/null || true
+
+# Check if diagnostic settings already exist
+EXISTING_DIAG=$(az_text monitor diagnostic-settings list --resource "$FIREWALL_ID" -o tsv --query "[?name=='$DIAG_SETTING_NAME'].name" 2>/dev/null || true)
+if [[ -z "$EXISTING_DIAG" ]]; then
+    echo "Creating diagnostic settings '$DIAG_SETTING_NAME' (all logs -> $WORKSPACE_NAME)..."
+    LOGS_JSON='[{"categoryGroup":"allLogs","enabled":true}]'
+    METRICS_JSON='[{"category":"AllMetrics","enabled":true}]'
+    if az_text monitor diagnostic-settings create \
+        --resource "$FIREWALL_ID" \
+        -n "$DIAG_SETTING_NAME" \
+        --workspace "$WORKSPACE_ARM_ID" \
+        --export-to-resource-specific true \
+        --logs "$LOGS_JSON" \
+        --metrics "$METRICS_JSON" \
+        --output none >/dev/null 2>/dev/null; then
+        echo "  [OK] Diagnostic settings created. Logs will flow within 5-10 minutes."
+    else
+        echo "  WARNING: Failed to create diagnostic settings. Firewall logs may not flow."
+    fi
+else
+    echo "Diagnostic settings '$DIAG_SETTING_NAME' already exist."
+fi
 
 step "Ensuring route table and subnet association"
 ROUTE_TABLE_EXISTS=$(az_text network route-table show -g "$RESOURCE_GROUP" -n "$ROUTE_TABLE_NAME" --query id -o tsv 2>/dev/null || true)
