@@ -53,12 +53,12 @@ if [[ "$POWER_STATE" == "VM deallocated" ]]; then
 fi
 
 # Deallocate Azure Firewall first if present (saves ~$30/day)
-FW_NAME=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
+FW_NAME=$(az resource list -g "$RESOURCE_GROUP" --resource-type "Microsoft.Network/azureFirewalls" --query "[0].name" -o tsv 2>/dev/null || echo "")
 if [[ -n "$FW_NAME" ]]; then
     echo ""
     echo "Deallocating Azure Firewall '$FW_NAME' (saves ~\$30/day)..."
-    az network firewall update -g "$RESOURCE_GROUP" -n "$FW_NAME" --set "ipConfigurations=[]" 2>/dev/null
-    echo "  Firewall deallocated."
+    az network firewall ip-config delete -g "$RESOURCE_GROUP" -f "$FW_NAME" -n LocalBoxFirewallIpConfig --output none 2>/dev/null || true
+    echo "  Firewall deallocated (IP config removed)."
 fi
 
 # Deallocate

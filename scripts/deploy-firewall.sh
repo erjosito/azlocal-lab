@@ -30,8 +30,6 @@ FIREWALL_SUBNET_PREFIX="172.16.2.0/26"
 ROUTE_TABLE_NAME="LocalBox-FW-RouteTable"
 DEFAULT_ROUTE_NAME="DefaultToFirewall"
 FALLBACK_WORKSPACE_NAME="LocalBox-FW-Workspace"
-FIREWALL_API_VERSION="2024-05-01"
-FIREWALL_POLICY_API_VERSION="2024-10-01"
 
 usage() {
     echo "Usage: $0 --resource-group <name> [--location <azure-region>] [--firewall-name <name>]"
@@ -73,6 +71,7 @@ done
 PUBLIC_IP_NAME="${FIREWALL_NAME}-pip"
 POLICY_NAME="${FIREWALL_NAME}-Policy"
 APPLICATION_RCG_NAME="LocalBox-App-RCG"
+NAT_RCG_NAME="LocalBox-NAT-RCG"
 NETWORK_RCG_NAME="LocalBox-Network-RCG"
 FIREWALL_IP_CONFIG_NAME="LocalBoxFirewallIpConfig"
 DIAG_SETTING_NAME="${FIREWALL_NAME}-Diagnostics"
@@ -89,11 +88,6 @@ if [[ -z "$LOCATION" ]]; then
 fi
 
 SUBSCRIPTION_ID=$(az_text account show --query id -o tsv)
-POLICY_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/firewallPolicies/${POLICY_NAME}"
-FIREWALL_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/azureFirewalls/${FIREWALL_NAME}"
-APPLICATION_RCG_URL="https://management.azure.com${POLICY_ID}/ruleCollectionGroups/${APPLICATION_RCG_NAME}?api-version=${FIREWALL_POLICY_API_VERSION}"
-NETWORK_RCG_URL="https://management.azure.com${POLICY_ID}/ruleCollectionGroups/${NETWORK_RCG_NAME}?api-version=${FIREWALL_POLICY_API_VERSION}"
-FIREWALL_URL="https://management.azure.com${FIREWALL_ID}?api-version=${FIREWALL_API_VERSION}"
 ROUTE_TABLE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/routeTables/${ROUTE_TABLE_NAME}"
 
 cat <<EOF
@@ -148,60 +142,197 @@ if [[ -z "$PUBLIC_IP_ID" ]]; then
 else
     echo "Public IP '$PUBLIC_IP_NAME' already exists."
 fi
+FIREWALL_PUBLIC_IP=$(az_text network public-ip show -g "$RESOURCE_GROUP" -n "$PUBLIC_IP_NAME" --query ipAddress -o tsv 2>/dev/null || true)
 
 step "Ensuring firewall policy"
-if ! az_text_allow_failure resource show --ids "$POLICY_ID" --api-version "$FIREWALL_POLICY_API_VERSION" --query id -o tsv >/dev/null; then
-    POLICY_BODY=$(cat <<EOF
-{"location":"${LOCATION}","properties":{"threatIntelMode":"Alert"}}
-EOF
-)
-    az_text rest --method put --url "${POLICY_ID}?api-version=${FIREWALL_POLICY_API_VERSION}" --body "$POLICY_BODY" --output none >/dev/null
+POLICY_EXISTS=$(az_text network firewall policy show -g "$RESOURCE_GROUP" -n "$POLICY_NAME" --query id -o tsv 2>/dev/null || true)
+if [[ -z "$POLICY_EXISTS" ]]; then
+    echo "Creating firewall policy '$POLICY_NAME'..."
+    az_text network firewall policy create \
+        -g "$RESOURCE_GROUP" \
+        -n "$POLICY_NAME" \
+        -l "$LOCATION" \
+        --threat-intel-mode Alert \
+        --output none >/dev/null
 else
     echo "Firewall policy '$POLICY_NAME' already exists."
 fi
 
-if ! az_text_allow_failure rest --method get --url "$APPLICATION_RCG_URL" >/dev/null; then
+APP_RCG_EXISTS=$(az_text network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "$POLICY_NAME" -n "$APPLICATION_RCG_NAME" --query id -o tsv 2>/dev/null || true)
+if [[ -z "$APP_RCG_EXISTS" ]]; then
     echo "Creating application rule collection group '$APPLICATION_RCG_NAME'..."
-    APP_RCG_BODY=$(cat <<EOF
-{"properties":{"priority":100,"ruleCollections":[{"name":"AllowAll","priority":100,"ruleCollectionType":"FirewallPolicyFilterRuleCollection","action":{"type":"Allow"},"rules":[{"name":"permit-any","ruleType":"ApplicationRule","sourceAddresses":["*"],"targetFqdns":["*"],"protocols":[{"protocolType":"Http","port":80},{"protocolType":"Https","port":443}]}]}]}}
-EOF
-)
-    az_text rest --method put --url "$APPLICATION_RCG_URL" --body "$APP_RCG_BODY" --output none >/dev/null
+    az_text network firewall policy rule-collection-group create \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        -n "$APPLICATION_RCG_NAME" \
+        --priority 100 \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection add-filter-collection \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$APPLICATION_RCG_NAME" \
+        -n "AllowAll" \
+        --collection-priority 100 \
+        --action Allow \
+        --rule-type ApplicationRule \
+        --rule-name "permit-any" \
+        --source-addresses "*" \
+        --target-fqdns "*" \
+        --protocols Http=80 Https=443 \
+        --output none >/dev/null
 else
     echo "Application rule collection group '$APPLICATION_RCG_NAME' already exists."
 fi
 
-if ! az_text_allow_failure rest --method get --url "$NETWORK_RCG_URL" >/dev/null; then
+NETWORK_RCG_EXISTS=$(az_text network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "$POLICY_NAME" -n "$NETWORK_RCG_NAME" --query id -o tsv 2>/dev/null || true)
+if [[ -z "$NETWORK_RCG_EXISTS" ]]; then
     echo "Creating network rule collection group '$NETWORK_RCG_NAME' with baseline rules..."
-    NETWORK_RCG_BODY=$(cat <<EOF
-{"properties":{"priority":200,"ruleCollections":[{"name":"AllowRequired","priority":200,"ruleCollectionType":"FirewallPolicyFilterRuleCollection","action":{"type":"Allow"},"rules":[{"name":"allow-dns","ruleType":"NetworkRule","sourceAddresses":["*"],"destinationAddresses":["*"],"destinationPorts":["53"],"ipProtocols":["UDP","TCP"]},{"name":"allow-ntp","ruleType":"NetworkRule","sourceAddresses":["*"],"destinationAddresses":["*"],"destinationPorts":["123"],"ipProtocols":["UDP"]},{"name":"allow-smb-internal","ruleType":"NetworkRule","sourceAddresses":["172.16.0.0/12","10.0.0.0/8"],"destinationAddresses":["10.0.0.0/8"],"destinationPorts":["445"],"ipProtocols":["TCP"]},{"name":"allow-quic-internal","ruleType":"NetworkRule","sourceAddresses":["172.16.0.0/12","10.0.0.0/8"],"destinationAddresses":["10.0.0.0/8"],"destinationPorts":["443"],"ipProtocols":["UDP"]}]}]}}
-EOF
-)
-    az_text rest --method put --url "$NETWORK_RCG_URL" --body "$NETWORK_RCG_BODY" --output none >/dev/null
+    az_text network firewall policy rule-collection-group create \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        -n "$NETWORK_RCG_NAME" \
+        --priority 200 \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection add-filter-collection \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        -n "AllowDNS" \
+        --collection-priority 200 \
+        --action Allow \
+        --rule-type NetworkRule \
+        --rule-name "allow-dns" \
+        --source-addresses "*" \
+        --destination-addresses "*" \
+        --destination-ports 53 \
+        --ip-protocols UDP TCP \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection add-filter-collection \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        -n "AllowNTP" \
+        --collection-priority 210 \
+        --action Allow \
+        --rule-type NetworkRule \
+        --rule-name "allow-ntp" \
+        --source-addresses "*" \
+        --destination-addresses "*" \
+        --destination-ports 123 \
+        --ip-protocols UDP \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection add-filter-collection \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        -n "AllowSMBInternal" \
+        --collection-priority 220 \
+        --action Allow \
+        --rule-type NetworkRule \
+        --rule-name "allow-smb-internal" \
+        --source-addresses 172.16.0.0/12 10.0.0.0/8 \
+        --destination-addresses 10.0.0.0/8 \
+        --destination-ports 445 \
+        --ip-protocols TCP \
+        --output none >/dev/null
+    az_text network firewall policy rule-collection-group collection add-filter-collection \
+        -g "$RESOURCE_GROUP" \
+        --policy-name "$POLICY_NAME" \
+        --rule-collection-group-name "$NETWORK_RCG_NAME" \
+        -n "AllowQUICInternal" \
+        --collection-priority 230 \
+        --action Allow \
+        --rule-type NetworkRule \
+        --rule-name "allow-quic-internal" \
+        --source-addresses 172.16.0.0/12 10.0.0.0/8 \
+        --destination-addresses 10.0.0.0/8 \
+        --destination-ports 443 \
+        --ip-protocols UDP \
+        --output none >/dev/null
 else
     echo "Network rule collection group '$NETWORK_RCG_NAME' already exists."
 fi
 
-step "Ensuring Azure Firewall"
-FIREWALL_BODY=$(cat <<EOF
-{"location":"${LOCATION}","properties":{"sku":{"name":"AZFW_VNet","tier":"Standard"},"threatIntelMode":"Alert","firewallPolicy":{"id":"${POLICY_ID}"},"ipConfigurations":[{"name":"${FIREWALL_IP_CONFIG_NAME}","properties":{"subnet":{"id":"${FIREWALL_SUBNET_ID}"},"publicIPAddress":{"id":"${PUBLIC_IP_ID}"}}}]}}
-EOF
-)
-az_text rest --method put --url "$FIREWALL_URL" --body "$FIREWALL_BODY" --output none >/dev/null
+step "Ensuring DNAT rule for RDP access"
+CLIENT_PRIVATE_IP=$(az_text vm show -g "$RESOURCE_GROUP" -n "LocalBox-Client" -d --query privateIps -o tsv 2>/dev/null || true)
+if [[ -z "$CLIENT_PRIVATE_IP" ]]; then
+    echo "WARNING: Could not find LocalBox-Client private IP. Skipping DNAT rule."
+else
+    echo "LocalBox-Client private IP: $CLIENT_PRIVATE_IP"
+    NAT_RCG_EXISTS=$(az_text network firewall policy rule-collection-group show -g "$RESOURCE_GROUP" --policy-name "$POLICY_NAME" -n "$NAT_RCG_NAME" --query id -o tsv 2>/dev/null || true)
+    if [[ -z "$NAT_RCG_EXISTS" ]]; then
+        echo "Creating NAT rule collection group '$NAT_RCG_NAME'..."
+        az_text network firewall policy rule-collection-group create \
+            -g "$RESOURCE_GROUP" \
+            --policy-name "$POLICY_NAME" \
+            -n "$NAT_RCG_NAME" \
+            --priority 150 \
+            --output none >/dev/null
+        az_text network firewall policy rule-collection-group collection add-nat-collection \
+            -g "$RESOURCE_GROUP" \
+            --policy-name "$POLICY_NAME" \
+            --rule-collection-group-name "$NAT_RCG_NAME" \
+            -n "InboundRDP" \
+            --collection-priority 150 \
+            --action DNAT \
+            --rule-name "RDP-to-LocalBox-Client" \
+            --source-addresses "*" \
+            --destination-addresses "$FIREWALL_PUBLIC_IP" \
+            --destination-ports 3389 \
+            --ip-protocols TCP \
+            --translated-address "$CLIENT_PRIVATE_IP" \
+            --translated-port 3389 \
+            --output none >/dev/null
+    else
+        echo "NAT rule collection group '$NAT_RCG_NAME' already exists."
+    fi
+fi
 
+step "Ensuring Azure Firewall"
+FIREWALL_STATE=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query provisioningState -o tsv 2>/dev/null || true)
+if [[ -z "$FIREWALL_STATE" ]]; then
+    echo "Creating Azure Firewall '$FIREWALL_NAME' (this takes 5-10 minutes)..."
+    az_text network firewall create \
+        -g "$RESOURCE_GROUP" \
+        -n "$FIREWALL_NAME" \
+        -l "$LOCATION" \
+        --policy "$POLICY_NAME" \
+        --vnet-name "$VNET_NAME" \
+        --conf-name "$FIREWALL_IP_CONFIG_NAME" \
+        --public-ip "$PUBLIC_IP_NAME" \
+        --output none >/dev/null
+else
+    echo "Azure Firewall '$FIREWALL_NAME' already exists ($FIREWALL_STATE)."
+fi
+
+echo "Verifying IP configuration..."
+FIREWALL_PRIVATE_IP=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query "ipConfigurations[0].privateIpAddress" -o tsv 2>/dev/null || true)
+if [[ -z "$FIREWALL_PRIVATE_IP" || "$FIREWALL_PRIVATE_IP" == "None" ]]; then
+    echo "  IP config not bound yet. Adding explicitly..."
+    az_text network firewall ip-config create \
+        -g "$RESOURCE_GROUP" \
+        -f "$FIREWALL_NAME" \
+        -n "$FIREWALL_IP_CONFIG_NAME" \
+        --public-ip-address "$PUBLIC_IP_NAME" \
+        --vnet-name "$VNET_NAME" \
+        --output none >/dev/null
+fi
+
+echo "Waiting for firewall private IP..."
 FIREWALL_PRIVATE_IP=""
-for _ in $(seq 1 60); do
-    FIREWALL_PRIVATE_IP=$(az_text resource show --ids "$FIREWALL_ID" --api-version "$FIREWALL_API_VERSION" --query "properties.ipConfigurations[0].properties.privateIPAddress" -o tsv 2>/dev/null || true)
-    [[ -n "$FIREWALL_PRIVATE_IP" ]] && break
+for _ in $(seq 1 30); do
+    FIREWALL_PRIVATE_IP=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query "ipConfigurations[0].privateIpAddress" -o tsv 2>/dev/null || true)
+    if [[ -n "$FIREWALL_PRIVATE_IP" && "$FIREWALL_PRIVATE_IP" != "None" ]]; then
+        break
+    fi
     sleep 10
 done
 
-if [[ -z "$FIREWALL_PRIVATE_IP" ]]; then
+if [[ -z "$FIREWALL_PRIVATE_IP" || "$FIREWALL_PRIVATE_IP" == "None" ]]; then
     echo "ERROR: Timed out waiting for Azure Firewall private IP."
     exit 1
 fi
-
-FIREWALL_PUBLIC_IP=$(az_text network public-ip show -g "$RESOURCE_GROUP" -n "$PUBLIC_IP_NAME" --query ipAddress -o tsv)
+echo "  Firewall private IP: $FIREWALL_PRIVATE_IP"
 
 step "Ensuring Log Analytics workspace and diagnostics"
 WORKSPACE_INFO=$(az_text monitor log-analytics workspace list -g "$RESOURCE_GROUP" -o json | python3 -c 'import sys, json; items = json.load(sys.stdin); match = next((w for w in items if "Workspace" in w.get("name", "")), None); print("{}\t{}".format(match["name"], match["id"]) if match else "")')
@@ -219,13 +350,14 @@ fi
 IFS=$'\t' read -r WORKSPACE_NAME WORKSPACE_ARM_ID <<< "$WORKSPACE_INFO"
 
 LOGS_JSON='[{"category":"AZFWApplicationRule","enabled":true,"retentionPolicy":{"enabled":false,"days":0}},{"category":"AZFWNetworkRule","enabled":true,"retentionPolicy":{"enabled":false,"days":0}},{"category":"AZFWDnsQuery","enabled":true,"retentionPolicy":{"enabled":false,"days":0}}]'
+FIREWALL_ID=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query id -o tsv)
 az_text monitor diagnostic-settings create \
     --resource "$FIREWALL_ID" \
     -n "$DIAG_SETTING_NAME" \
     --workspace "$WORKSPACE_ARM_ID" \
     --export-to-resource-specific true \
     --logs "$LOGS_JSON" \
-    --output none >/dev/null
+    --output none >/dev/null 2>/dev/null || true
 
 step "Ensuring route table and subnet association"
 ROUTE_TABLE_EXISTS=$(az_text network route-table show -g "$RESOURCE_GROUP" -n "$ROUTE_TABLE_NAME" --query id -o tsv 2>/dev/null || true)
@@ -243,7 +375,7 @@ az_text network route-table route create \
     --address-prefix 0.0.0.0/0 \
     --next-hop-type VirtualAppliance \
     --next-hop-ip-address "$FIREWALL_PRIVATE_IP" \
-    --output none >/dev/null
+    --output none >/dev/null 2>/dev/null || true
 
 CURRENT_ROUTE_TABLE_ID=$(az_text network vnet subnet show -g "$RESOURCE_GROUP" --vnet-name "$VNET_NAME" -n "$WORKLOAD_SUBNET_NAME" --query routeTable.id -o tsv 2>/dev/null || true)
 if [[ "$CURRENT_ROUTE_TABLE_ID" != "$ROUTE_TABLE_ID" ]]; then
@@ -267,3 +399,12 @@ cat <<EOF
 
 Traffic from ${WORKLOAD_SUBNET_NAME} now uses Azure Firewall as its default egress path.
 EOF
+
+if [[ -n "${CLIENT_PRIVATE_IP:-}" ]]; then
+    cat <<EOF
+
+RDP access via DNAT:
+  mstsc /v:${FIREWALL_PUBLIC_IP}
+  (Firewall forwards port 3389 -> ${CLIENT_PRIVATE_IP})
+EOF
+fi

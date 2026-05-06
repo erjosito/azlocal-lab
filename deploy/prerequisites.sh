@@ -103,7 +103,7 @@ for PROVIDER in "${PROVIDERS[@]}"; do
         echo -e "  $PROVIDER: ${GREEN}Already registered${NC}"
     else
         echo -n "  $PROVIDER: Registering... "
-        az provider register --namespace "$PROVIDER" --wait &>/dev/null || true
+        az provider register --namespace "$PROVIDER" &>/dev/null || true
         echo -e "${GREEN}Done${NC}"
     fi
 done
@@ -115,7 +115,17 @@ az bicep upgrade &>/dev/null 2>&1 || az bicep install &>/dev/null 2>&1 || true
 BICEP_VERSION=$(az bicep version 2>/dev/null | head -1 || echo "unknown")
 echo -e "${GREEN}OK${NC} ($BICEP_VERSION)"
 
-# ── 7. HCI Resource Provider SPN ─────────────────────────────────
+# ── 7. Python3 check ──────────────────────────────────────────────
+echo ""
+echo -n "Checking Python 3... "
+if command -v python3 &> /dev/null; then
+    PY_VERSION=$(python3 --version 2>&1)
+    echo -e "${GREEN}OK${NC} ($PY_VERSION)"
+else
+    echo -e "${YELLOW}WARN${NC} — python3 not found. Some scripts (estimate-cost.sh) require it."
+fi
+
+# ── 8. HCI Resource Provider SPN ─────────────────────────────────
 echo ""
 echo -n "Retrieving Azure Local resource provider object ID... "
 SPN_ID=$(az ad sp list --display-name "Microsoft.AzureStackHCI Resource Provider" \
@@ -127,7 +137,7 @@ else
     echo -e "${YELLOW}WARN${NC} — Could not retrieve. You may need to register Microsoft.AzureStackHCI first."
 fi
 
-# ── 8. Tenant ID ──────────────────────────────────────────────────
+# ── 9. Tenant ID ──────────────────────────────────────────────────
 TENANT_ID=$(az account show --query "tenantId" -o tsv)
 echo "  tenantId      = $TENANT_ID"
 

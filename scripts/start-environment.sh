@@ -77,16 +77,20 @@ fi
 FW_NAME=$(az network firewall list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
 if [[ -n "$FW_NAME" ]]; then
     echo ""
-    echo "Starting Azure Firewall '$FW_NAME'..."
-    FW_PIP_ID=$(az network firewall show -g "$RESOURCE_GROUP" -n "$FW_NAME" --query "ipConfigurations[0].publicIpAddress.id" -o tsv 2>/dev/null || echo "")
-    FW_SUBNET_ID=$(az network firewall show -g "$RESOURCE_GROUP" -n "$FW_NAME" --query "ipConfigurations[0].subnet.id" -o tsv 2>/dev/null || echo "")
-    if [[ -n "$FW_PIP_ID" && -n "$FW_SUBNET_ID" ]]; then
-        az network firewall update -g "$RESOURCE_GROUP" -n "$FW_NAME" \
-            --set "ipConfigurations[0].publicIpAddress.id=$FW_PIP_ID" \
-            --set "ipConfigurations[0].subnet.id=$FW_SUBNET_ID" 2>/dev/null
-        echo "Azure Firewall started."
+    echo "Reallocating Azure Firewall '$FW_NAME'..."
+    # After deallocation ipConfigurations is empty, so look up PIP and subnet by name
+    FW_PIP_NAME="${FW_NAME}-pip"
+    FW_PIP_ID=$(az network public-ip show -g "$RESOURCE_GROUP" -n "$FW_PIP_NAME" --query "id" -o tsv 2>/dev/null || echo "")
+    VNET_NAME=$(az network vnet list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
+    if [[ -n "$FW_PIP_ID" && -n "$VNET_NAME" ]]; then
+        az network firewall ip-config create -g "$RESOURCE_GROUP" -f "$FW_NAME" \
+            -n LocalBoxFirewallIpConfig \
+            --public-ip-address "$FW_PIP_ID" \
+            --vnet-name "$VNET_NAME" \
+            --output none 2>/dev/null || true
+        echo "  Azure Firewall reallocated."
     else
-        echo "  (Firewall configuration not found, skipping)"
+        echo "  (Firewall PIP or VNet not found, skipping reallocation)"
     fi
 fi
 
