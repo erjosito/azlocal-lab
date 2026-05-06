@@ -1,8 +1,25 @@
 # Exercise 8 — Arc Gateway and Network Security
 
-## Learning Objectives
+> ⚠️ **STATUS: Coming Soon**
+>
+> This exercise is currently **not actionable** in LocalBox. Azure Arc Gateway can only be
+> associated with an Azure Local cluster **at registration time** — there is no supported
+> method to attach it to an already-registered cluster. Since LocalBox arrives pre-registered,
+> the hands-on steps below cannot be completed today.
+>
+> Microsoft has indicated that post-registration Arc Gateway association may be supported in
+> the future. When that capability becomes available, this exercise will be fully activated.
+>
+> **What you can still do today:**
+> - Read through the concepts below to understand the value proposition of Arc Gateway
+> - Review the firewall log patterns from Exercise 5 to understand the baseline traffic
+> - Create an Arc Gateway resource to explore its properties (it just cannot be attached)
 
-By the end of this exercise, you will understand:
+---
+
+## Learning Objectives (Preview)
+
+By the end of this exercise (when fully available), you will understand:
 
 - What endpoints Arc-connected machines communicate with during normal operation
 - How Azure Arc Gateway reduces the network footprint for Arc-enabled servers
@@ -92,6 +109,10 @@ That is the key observation for this lab: **Arc works, but the firewall policy i
 ---
 
 ## Part 2: Deploy Arc Gateway
+
+> 🚧 **Not yet supported on existing Azure Local clusters.**
+> The steps below document the intended workflow for when post-registration gateway
+> association becomes available. They are provided for reference only.
 
 **Goal:** Create the Arc Gateway resource and point the agents at it.
 
