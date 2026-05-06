@@ -71,9 +71,15 @@ function Invoke-WorkspaceQuery {
         "-w", $WorkspaceId,
         "--analytics-query", $Query,
         "-o", "json"
-    )
+    ) -AllowFailure
 
-    if (-not $result -or -not $result.tables -or $result.tables.Count -eq 0) {
+    if (-not $result) {
+        return @()
+    }
+    if (-not ($result.PSObject.Properties['tables'])) {
+        return @()
+    }
+    if (-not $result.tables -or $result.tables.Count -eq 0) {
         return @()
     }
 
@@ -134,10 +140,15 @@ $diagSettings = Invoke-AzJson -Arguments @(
     "-o", "json"
 ) -AllowFailure
 $hasDiagnostics = $false
-if ($diagSettings -and $diagSettings.value) {
-    $hasDiagnostics = $diagSettings.value.Count -gt 0
-} elseif ($diagSettings -is [array]) {
-    $hasDiagnostics = $diagSettings.Count -gt 0
+if ($diagSettings) {
+    if ($diagSettings -is [array]) {
+        $hasDiagnostics = $diagSettings.Count -gt 0
+    } elseif ($diagSettings.PSObject.Properties['value'] -and $diagSettings.value) {
+        $hasDiagnostics = @($diagSettings.value).Count -gt 0
+    } else {
+        # Single object returned (not array, no .value) — treat as having settings
+        $hasDiagnostics = $true
+    }
 }
 
 if (-not $hasDiagnostics) {
