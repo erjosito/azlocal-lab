@@ -29,8 +29,8 @@ if (-not $vmId) {
 Write-Host "Found" -ForegroundColor Green
 
 # Get current power state
-$powerState = az vm get-instance-view -g $ResourceGroup -n $VmName `
-    --query 'instanceView.statuses[?starts_with(code,`PowerState/`)].displayStatus' -o tsv
+$powerState = (az vm get-instance-view -g $ResourceGroup -n $VmName -o json 2>$null | ConvertFrom-Json).instanceView.statuses |
+    Where-Object { $_.code -like 'PowerState/*' } | Select-Object -ExpandProperty displayStatus
 Write-Host "  Current state: $powerState"
 
 if ($powerState -eq "VM running") {
