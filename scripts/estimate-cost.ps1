@@ -1,5 +1,5 @@
-#####################################################################
-# estimate-cost.ps1 — Estimate monthly cost for LocalBox environment
+﻿#####################################################################
+# estimate-cost.ps1 - Estimate monthly cost for LocalBox environment
 #
 # Queries the Azure Retail Prices API for the main resources used.
 #####################################################################

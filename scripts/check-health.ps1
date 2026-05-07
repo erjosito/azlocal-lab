@@ -1,5 +1,5 @@
-#####################################################################
-# check-health.ps1 — Verify Azure Local lab environment health
+﻿#####################################################################
+# check-health.ps1 - Verify Azure Local lab environment health
 #
 # Checks the status of all key components:
 #   - LocalBox-Client VM (running)
@@ -50,7 +50,7 @@ function Write-Check {
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " Azure Local Lab — Health Check"
+Write-Host " Azure Local Lab - Health Check"
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Resource Group : $ResourceGroup"
 Write-Host " Time           : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
@@ -91,10 +91,10 @@ if (-not $arcServers -or $arcServers.Count -eq 0) {
         $status = $srv.status
         $agentVersion = $srv.agentVersion
         if ($status -eq "Connected") {
-            Write-Check -Name "$name — Connected (agent $agentVersion)" -Status "pass"
+            Write-Check -Name "$name - Connected (agent $agentVersion)" -Status "pass"
         } else {
             $lastSeen = if ($srv.lastStatusChange) { $srv.lastStatusChange } else { "unknown" }
-            Write-Check -Name "$name — $status (last seen: $lastSeen)" -Status "fail" -Detail "Agent version: $agentVersion"
+            Write-Check -Name "$name - $status (last seen: $lastSeen)" -Status "fail" -Detail "Agent version: $agentVersion"
         }
     }
 
@@ -118,11 +118,11 @@ if (-not $hciClusters -or $hciClusters.Count -eq 0) {
         $connectivityStatus = $clusterDetail.properties.connectivityStatus
 
         if ($connectivityStatus -eq "Connected" -or $clusterStatus -eq "ConnectedRecently") {
-            Write-Check -Name "$clusterName — Connected" -Status "pass" -Detail "Status: $clusterStatus"
+            Write-Check -Name "$clusterName - Connected" -Status "pass" -Detail "Status: $clusterStatus"
         } elseif ($connectivityStatus -eq "PartiallyConnected") {
-            Write-Check -Name "$clusterName — Partially connected" -Status "warn" -Detail "Status: $clusterStatus"
+            Write-Check -Name "$clusterName - Partially connected" -Status "warn" -Detail "Status: $clusterStatus"
         } else {
-            Write-Check -Name "$clusterName — $connectivityStatus" -Status "fail" -Detail "Status: $clusterStatus"
+            Write-Check -Name "$clusterName - $connectivityStatus" -Status "fail" -Detail "Status: $clusterStatus"
         }
     }
 }
@@ -140,11 +140,11 @@ if (-not $bridges -or $bridges.Count -eq 0) {
         $bridgeName = $bridge.name
 
         if ($bridgeStatus -eq "Running") {
-            Write-Check -Name "$bridgeName — Running" -Status "pass"
+            Write-Check -Name "$bridgeName - Running" -Status "pass"
         } elseif ($bridgeStatus -eq "WaitingForHeartbeat" -or $bridgeStatus -eq "Connecting") {
-            Write-Check -Name "$bridgeName — $bridgeStatus" -Status "warn" -Detail "Bridge may be starting up or having connectivity issues"
+            Write-Check -Name "$bridgeName - $bridgeStatus" -Status "warn" -Detail "Bridge may be starting up or having connectivity issues"
         } else {
-            Write-Check -Name "$bridgeName — $bridgeStatus" -Status "fail" -Detail "Bridge is not operational"
+            Write-Check -Name "$bridgeName - $bridgeStatus" -Status "fail" -Detail "Bridge is not operational"
         }
     }
 }
@@ -161,9 +161,9 @@ if (-not $customLocs -or $customLocs.Count -eq 0) {
         $provState = $locDetail.properties.provisioningState
 
         if ($provState -eq "Succeeded") {
-            Write-Check -Name "$($loc.name) — Ready" -Status "pass" -Detail "Provisioning: $provState"
+            Write-Check -Name "$($loc.name) - Ready" -Status "pass" -Detail "Provisioning: $provState"
         } else {
-            Write-Check -Name "$($loc.name) — $provState" -Status "warn"
+            Write-Check -Name "$($loc.name) - $provState" -Status "warn"
         }
     }
 }
@@ -174,7 +174,7 @@ Write-Host "[6/7] Azure Firewall (optional)" -ForegroundColor White
 # Use az resource list (fast) instead of az network firewall list (very slow, fetches full rule sets)
 $fwResources = az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json
 if (-not $fwResources -or $fwResources.Count -eq 0) {
-    Write-Check -Name "Firewall" -Status "warn" -Detail "Not deployed (optional — use deploy-firewall.ps1 to add)"
+    Write-Check -Name "Firewall" -Status "warn" -Detail "Not deployed (optional - use deploy-firewall.ps1 to add)"
 } else {
     foreach ($fwRes in $fwResources) {
         $fwName = $fwRes.name
@@ -184,9 +184,9 @@ if (-not $fwResources -or $fwResources.Count -eq 0) {
         if ($fwState -eq "Succeeded" -and $fwIpConfigs -and $fwIpConfigs.Count -gt 0) {
             $fwIp = $fwIpConfigs[0].properties.privateIPAddress
             if ($fwIp) {
-                Write-Check -Name "$fwName — Active (private IP: $fwIp)" -Status "pass"
+                Write-Check -Name "$fwName - Active (private IP: $fwIp)" -Status "pass"
             } else {
-                Write-Check -Name "$fwName — Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
+                Write-Check -Name "$fwName - Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
             }
 
             # Check diagnostic settings
@@ -197,9 +197,9 @@ if (-not $fwResources -or $fwResources.Count -eq 0) {
                 Write-Check -Name "  Diagnostic settings missing" -Status "warn" -Detail "Logs not flowing. Run monitor-firewall-logs.ps1 -FixDiagnostics"
             }
         } elseif ($fwState -eq "Succeeded") {
-            Write-Check -Name "$fwName — Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
+            Write-Check -Name "$fwName - Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
         } else {
-            Write-Check -Name "$fwName — $fwState" -Status "fail"
+            Write-Check -Name "$fwName - $fwState" -Status "fail"
         }
     }
 }
@@ -218,9 +218,9 @@ if ($aksClusters -and $aksClusters.Count -gt 0) {
         $aksDetail = az resource show --ids $aks.id -o json 2>$null | ConvertFrom-Json
         $aksConnectivity = $aksDetail.properties.connectivityStatus
         if ($aksConnectivity -eq "Connected") {
-            Write-Check -Name "AKS: $($aks.name) — Connected" -Status "pass"
+            Write-Check -Name "AKS: $($aks.name) - Connected" -Status "pass"
         } else {
-            Write-Check -Name "AKS: $($aks.name) — $aksConnectivity" -Status "warn"
+            Write-Check -Name "AKS: $($aks.name) - $aksConnectivity" -Status "warn"
         }
     }
 }

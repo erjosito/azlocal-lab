@@ -1,5 +1,5 @@
-#####################################################################
-# deploy-arc-gateway.ps1 — Create or remove Azure Arc Gateway
+﻿#####################################################################
+# deploy-arc-gateway.ps1 - Create or remove Azure Arc Gateway
 #
 # Creates an Azure Arc Gateway resource for the LocalBox lab and,
 # optionally, configures the Arc agents on AzLHOST1 and AzLHOST2 to

@@ -1,5 +1,5 @@
-#####################################################################
-# monitor-firewall-logs.ps1 — Query Azure Firewall logs for LocalBox
+﻿#####################################################################
+# monitor-firewall-logs.ps1 - Query Azure Firewall logs for LocalBox
 #
 # Uses az monitor log-analytics query against the resource-specific
 # Azure Firewall tables in the Log Analytics workspace in the lab RG.
@@ -73,7 +73,7 @@ function Invoke-WorkspaceQuery {
         [Parameter(Mandatory)][string]$Query
     )
 
-    # Collapse multiline queries to single line — az CLI hangs on multiline --analytics-query
+    # Collapse multiline queries to single line - az CLI hangs on multiline --analytics-query
     $singleLine = ($Query -replace '\r?\n', ' ' -replace '\s+', ' ').Trim()
 
     $result = Invoke-AzJson -Arguments @(
@@ -159,7 +159,7 @@ if ($diagSettings) {
     } elseif ($diagSettings.PSObject.Properties['value'] -and $diagSettings.value) {
         $hasDiagnostics = @($diagSettings.value).Count -gt 0
     } else {
-        # Single object returned (not array, no .value) — treat as having settings
+        # Single object returned (not array, no .value) - treat as having settings
         $hasDiagnostics = $true
     }
 }

@@ -1,5 +1,5 @@
-#####################################################################
-# check-upstream.ps1 — Check if local deployment artifacts match upstream
+﻿#####################################################################
+# check-upstream.ps1 - Check if local deployment artifacts match upstream
 #
 # Compares the locally cloned azure_arc commit with the latest commit
 # that touches azure_jumpstart_localbox in the upstream repository.

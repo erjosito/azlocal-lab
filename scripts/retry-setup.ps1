@@ -1,5 +1,5 @@
-#####################################################################
-# retry-setup.ps1 — Check and retry the LocalBox internal setup
+﻿#####################################################################
+# retry-setup.ps1 - Check and retry the LocalBox internal setup
 #
 # The LocalBox-Client VM runs an automated setup after deployment that
 # takes 4-5 hours. If it fails (e.g., due to timing issues with storage
@@ -324,7 +324,7 @@ if ($errors) {
             "DeploymentInProgress" { "Yellow" }
             default { "Red" }
         }
-        Write-Host "Azure Local cluster: $($cluster.name) — $($cluster.status)" -ForegroundColor $color
+        Write-Host "Azure Local cluster: $($cluster.name) - $($cluster.status)" -ForegroundColor $color
     } else {
         Write-Host "Azure Local cluster: Not yet created" -ForegroundColor DarkGray
     }
@@ -334,7 +334,7 @@ if ($errors) {
     $customLoc = if ($customLocList -and $customLocList.Count -gt 0) { $customLocList[0] } else { $null }
     if ($customLoc -and $customLoc.name) {
         $color = if ($customLoc.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
-        Write-Host "Custom location: $($customLoc.name) — $($customLoc.provisioningState)" -ForegroundColor $color
+        Write-Host "Custom location: $($customLoc.name) - $($customLoc.provisioningState)" -ForegroundColor $color
     } else {
         Write-Host "Custom location: Not yet created" -ForegroundColor DarkGray
     }
@@ -354,7 +354,7 @@ if ($errors) {
     $gwResponse = az rest --method get --url "/subscriptions/{subscriptionId}/resourceGroups/$ResourceGroup/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" -o json 2>$null | ConvertFrom-Json
     $gw = if ($gwResponse -and $gwResponse.value -and $gwResponse.value.Count -gt 0) { $gwResponse.value[0] } else { $null }
     if ($gw -and $gw.name) {
-        Write-Host "Arc Gateway: $($gw.name) — deployed" -ForegroundColor Green
+        Write-Host "Arc Gateway: $($gw.name) - deployed" -ForegroundColor Green
     }
 
     # Azure Firewall (if deployed)
@@ -362,7 +362,7 @@ if ($errors) {
     if ($fw) { $fw = @{ name = $fw.name; provisioningState = "Succeeded" } } else { $fw = $null }
     if ($fw -and $fw.name) {
         $color = if ($fw.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
-        Write-Host "Azure Firewall: $($fw.name) — $($fw.provisioningState)" -ForegroundColor $color
+        Write-Host "Azure Firewall: $($fw.name) - $($fw.provisioningState)" -ForegroundColor $color
 
         # Public IP
         $fwPip = az network public-ip show -g $ResourceGroup -n "$($fw.name)-pip" --query "ipAddress" -o tsv 2>$null

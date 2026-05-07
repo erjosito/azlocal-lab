@@ -1,5 +1,5 @@
-#####################################################################
-# stop-environment.ps1 — Deallocate LocalBox VM to save costs
+﻿#####################################################################
+# stop-environment.ps1 - Deallocate LocalBox VM to save costs
 #
 # Deallocating stops compute billing but keeps disks and networking.
 # Disk charges (~$120/mo) and IP charges continue while deallocated.

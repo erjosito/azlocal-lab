@@ -1,4 +1,4 @@
-#####################################################################
+﻿#####################################################################
 # deploy-firewall.ps1 - Deploy Azure Firewall for a LocalBox lab
 #
 # Creates a dedicated Azure Firewall subnet, public IP, firewall policy,
@@ -126,7 +126,7 @@ if (-not $networkRcgExists) {
     az network firewall policy rule-collection-group create -g $ResourceGroup `
         --policy-name $PolicyName -n $NetworkRcgName --priority 200 -o none
 
-    # DNS — Allow outbound DNS to Azure DNS and external resolvers
+    # DNS - Allow outbound DNS to Azure DNS and external resolvers
     Write-Host "  Adding DNS rules (UDP/TCP 53)..."
     az network firewall policy rule-collection-group collection add-filter-collection `
         -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
@@ -139,7 +139,7 @@ if (-not $networkRcgExists) {
         -n "allow-dns-tcp" --source-addresses "172.16.1.0/24" `
         --destination-addresses "*" --destination-ports 53 --ip-protocols TCP -o none
 
-    # NTP — Allow time sync
+    # NTP - Allow time sync
     Write-Host "  Adding NTP rule (UDP 123)..."
     az network firewall policy rule-collection-group collection add-filter-collection `
         -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
@@ -147,7 +147,7 @@ if (-not $networkRcgExists) {
         --rule-name "allow-ntp" --source-addresses "172.16.1.0/24" `
         --destination-addresses "*" --destination-ports 123 --ip-protocols UDP -o none
 
-    # Azure services — Allow HTTPS to AzureCloud service tag (Arc, HCI, etc.)
+    # Azure services - Allow HTTPS to AzureCloud service tag (Arc, HCI, etc.)
     Write-Host "  Adding Azure service rules (TCP 443 to AzureCloud)..."
     az network firewall policy rule-collection-group collection add-filter-collection `
         -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `
@@ -165,7 +165,7 @@ if (-not $networkRcgExists) {
         -n "allow-azure-quic" --source-addresses "172.16.1.0/24" `
         --destination-addresses "AzureCloud" --destination-ports 443 --ip-protocols UDP -o none
 
-    # Azure Monitor — Allow HTTPS to AzureMonitor service tag
+    # Azure Monitor - Allow HTTPS to AzureMonitor service tag
     Write-Host "  Adding Azure Monitor rule..."
     az network firewall policy rule-collection-group collection rule add `
         -g $ResourceGroup --policy-name $PolicyName --rule-collection-group-name $NetworkRcgName `

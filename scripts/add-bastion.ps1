@@ -1,5 +1,5 @@
-#####################################################################
-# add-bastion.ps1 — Add Azure Bastion to an existing LocalBox lab
+﻿#####################################################################
+# add-bastion.ps1 - Add Azure Bastion to an existing LocalBox lab
 #
 # Deploys Azure Bastion so you can RDP into LocalBox-Client through
 # the Azure Portal without needing a public IP NSG rule on port 3389.

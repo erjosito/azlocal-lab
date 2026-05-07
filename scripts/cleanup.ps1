@@ -1,5 +1,5 @@
-#####################################################################
-# cleanup.ps1 — Delete all LocalBox resources
+﻿#####################################################################
+# cleanup.ps1 - Delete all LocalBox resources
 #
 # WARNING: This permanently destroys all resources in the resource
 # group. This action cannot be undone.

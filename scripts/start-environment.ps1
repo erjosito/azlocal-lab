@@ -1,5 +1,5 @@
-#####################################################################
-# start-environment.ps1 — Start a previously deallocated LocalBox VM
+﻿#####################################################################
+# start-environment.ps1 - Start a previously deallocated LocalBox VM
 #
 # After starting, prints connection details so you can RDP back in.
 # The nested VMs (AzLHOST1, AzLHOST2, etc.) start automatically
