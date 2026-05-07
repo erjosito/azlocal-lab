@@ -54,20 +54,20 @@ Write-Host "Ensuring nested Hyper-V VMs are running..."
 $nestedResult = az vm run-command invoke -g $ResourceGroup -n $VmName `
     --command-id RunPowerShellScript `
     --scripts "Get-VM | Where-Object { `$_.State -ne 'Running' } | ForEach-Object { Start-VM -Name `$_.Name; Write-Output `"Started: `$(`$_.Name)`" }; Get-VM | Select-Object Name, State | Out-String" `
-    --query "value[0].message" -o tsv 2>$null
+    --query 'value[0].message' -o tsv 2>$null
 if ($nestedResult) {
     Write-Host $nestedResult
 }
 
 # Reallocate Azure Firewall if present in the resource group
-$fwName = az network firewall list -g $ResourceGroup --query "[0].name" -o tsv 2>$null
+$fwName = az network firewall list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
 if ($fwName) {
     Write-Host ""
     Write-Host "Reallocating Azure Firewall '$fwName'..."
     # After deallocation ipConfigurations is empty, so look up PIP and subnet by name
     $fwPipName = "$fwName-pip"
     $fwPipId = az network public-ip show -g $ResourceGroup -n $fwPipName --query "id" -o tsv 2>$null
-    $vnetName = az network vnet list -g $ResourceGroup --query "[0].name" -o tsv 2>$null
+    $vnetName = az network vnet list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
     $fwSubnetId = if ($vnetName) {
         az network vnet subnet show -g $ResourceGroup --vnet-name $vnetName -n AzureFirewallSubnet --query "id" -o tsv 2>$null
     }
