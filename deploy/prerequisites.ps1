@@ -39,6 +39,9 @@ try {
     exit 1
 }
 
+# ── 2b. Enable dynamic extension install (prevents interactive prompts in scripts)
+az config set extension.use_dynamic_install=yes_without_prompt 2>$null
+
 # ── 3. Owner role ─────────────────────────────────────────────────
 Write-Host -NoNewline "Checking subscription role... "
 $upn = $account.user.name
