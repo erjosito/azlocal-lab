@@ -51,32 +51,48 @@ Start-Sleep -Seconds 5
 # Start nested VMs if they are off (they may not auto-start after host deallocation)
 Write-Host ""
 Write-Host "Ensuring nested Hyper-V VMs are running..."
-$nestedJson = az vm run-command invoke -g $ResourceGroup -n $VmName `
+$nestedScript = 'Get-VM | Where-Object { $_.State -ne "Running" } | ForEach-Object { Start-VM -Name $_.Name; Write-Output "Started: $($_.Name)" }; Get-VM | Select-Object Name, State | Out-String'
+$nestedRaw = az vm run-command invoke -g $ResourceGroup -n $VmName `
     --command-id RunPowerShellScript `
-    --scripts 'Get-VM | Where-Object { $_.State -ne \"Running\" } | ForEach-Object { Start-VM -Name $_.Name; Write-Output \"Started: $($_.Name)\" }; Get-VM | Select-Object Name, State | Out-String' `
+    --scripts $nestedScript `
     -o json 2>$null
-$nestedResult = if ($nestedJson) { ($nestedJson | ConvertFrom-Json).value[0].message }
+# az on Windows may prefix output with CMD echo lines; extract JSON portion
+$nestedJsonStr = ($nestedRaw | Out-String) -replace '(?s)^.*?(?=\{)', ''
+$nestedResult = $null
+if ($nestedJsonStr -match '^\{') {
+    try { $nestedResult = ($nestedJsonStr | ConvertFrom-Json).value[0].message } catch {}
+}
 if ($nestedResult) {
     Write-Host $nestedResult
 }
 
 # Reallocate Azure Firewall if present in the resource group
-$fwName = (az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1 -ExpandProperty name
-if ($fwName) {
-    Write-Host ""
-    Write-Host "Reallocating Azure Firewall '$fwName'..."
-    # After deallocation ipConfigurations is empty, so look up PIP and subnet by name
-    $fwPipName = "$fwName-pip"
-    $fwPipId = az network public-ip show -g $ResourceGroup -n $fwPipName --query "id" -o tsv 2>$null
-    $vnetName = (az network vnet list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1 -ExpandProperty name
-    $fwSubnetId = if ($vnetName) {
-        az network vnet subnet show -g $ResourceGroup --vnet-name $vnetName -n AzureFirewallSubnet --query "id" -o tsv 2>$null
-    }
-    if ($fwPipId -and $fwSubnetId) {
-        az network firewall ip-config create -g $ResourceGroup -f $fwName -n LocalBoxFirewallIpConfig --public-ip-address $fwPipId --vnet-name $vnetName --output none 2>$null
-        Write-Host "  Azure Firewall reallocated." -ForegroundColor Green
+$fwResource = (az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1
+if ($fwResource) {
+    $fwName = $fwResource.name
+    # Check if already allocated (has IP configs)
+    $fwDetail = az resource show --ids $fwResource.id -o json 2>$null | ConvertFrom-Json
+    $hasIp = $fwDetail.properties.ipConfigurations -and $fwDetail.properties.ipConfigurations.Count -gt 0
+    if ($hasIp) {
+        $fwIp = $fwDetail.properties.ipConfigurations[0].properties.privateIPAddress
+        Write-Host ""
+        Write-Host "  Azure Firewall '$fwName' already allocated (IP: $fwIp)" -ForegroundColor Green
     } else {
-        Write-Host "  (Firewall PIP or subnet not found, skipping reallocation)" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Reallocating Azure Firewall '$fwName' (this takes ~5-10 minutes)..."
+        $fwPipName = "$fwName-pip"
+        $fwPipId = az network public-ip show -g $ResourceGroup -n $fwPipName --query "id" -o tsv 2>$null
+        $vnetName = (az network vnet list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1 -ExpandProperty name
+        if ($fwPipId -and $vnetName) {
+            az network firewall ip-config create -g $ResourceGroup -f $fwName -n LocalBoxFirewallIpConfig --public-ip-address $fwPipId --vnet-name $vnetName --output none
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  Azure Firewall reallocated." -ForegroundColor Green
+            } else {
+                Write-Host "  Azure Firewall reallocation failed (exit code $LASTEXITCODE)." -ForegroundColor Red
+            }
+        } else {
+            Write-Host "  (Firewall PIP or VNet not found, skipping reallocation)" -ForegroundColor Yellow
+        }
     }
 }
 

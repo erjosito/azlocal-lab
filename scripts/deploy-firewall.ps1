@@ -236,8 +236,7 @@ if (-not $firewallState) {
 
 # Ensure IP configuration is bound (az network firewall create sometimes creates without it)
 Write-Host "Verifying IP configuration..."
-$firewallPrivateIp = az network firewall show -g $ResourceGroup -n $FirewallName `
-    --query 'ipConfigurations[0].privateIpAddress' -o tsv 2>$null
+$firewallPrivateIp = (az network firewall show -g $ResourceGroup -n $FirewallName -o json 2>$null | ConvertFrom-Json).ipConfigurations[0].privateIpAddress
 if (-not $firewallPrivateIp -or $firewallPrivateIp -eq "None") {
     Write-Host "  IP config not bound yet. Adding explicitly..."
     az network firewall ip-config create -g $ResourceGroup -f $FirewallName `
@@ -249,8 +248,7 @@ if (-not $firewallPrivateIp -or $firewallPrivateIp -eq "None") {
 Write-Host "Waiting for firewall private IP..."
 $firewallPrivateIp = $null
 for ($attempt = 1; $attempt -le 30; $attempt++) {
-    $firewallPrivateIp = az network firewall show -g $ResourceGroup -n $FirewallName `
-        --query 'ipConfigurations[0].privateIpAddress' -o tsv 2>$null
+    $firewallPrivateIp = (az network firewall show -g $ResourceGroup -n $FirewallName -o json 2>$null | ConvertFrom-Json).ipConfigurations[0].privateIpAddress
     if ($firewallPrivateIp -and $firewallPrivateIp -ne "None") { break }
     Start-Sleep -Seconds 10
 }
