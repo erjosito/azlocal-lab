@@ -30,7 +30,7 @@ Write-Host "Found" -ForegroundColor Green
 
 # Get current power state
 $powerState = az vm get-instance-view -g $ResourceGroup -n $VmName `
-    --query "instanceView.statuses[?starts_with(code,'PowerState/')].displayStatus" -o tsv
+    --query 'instanceView.statuses[?starts_with(code,`PowerState/`)].displayStatus' -o tsv
 Write-Host "  Current state: $powerState"
 
 if ($powerState -eq "VM running") {
