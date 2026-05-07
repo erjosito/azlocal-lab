@@ -25,7 +25,7 @@ Write-Host ""
 
 # ── Find the VNet in the resource group ───────────────────────────
 Write-Host "Looking for VNet in resource group '$ResourceGroup'..."
-$vnetName = az network vnet list -g $ResourceGroup --query "[0].name" -o tsv 2>$null
+$vnetName = az network vnet list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
 
 if ([string]::IsNullOrWhiteSpace($vnetName)) {
     Write-Host "ERROR: No VNet found in resource group '$ResourceGroup'." -ForegroundColor Red

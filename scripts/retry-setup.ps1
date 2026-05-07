@@ -303,7 +303,7 @@ if ($errors) {
     Write-Host ""
 
     # Arc-enabled servers
-    $arcServers = az connectedmachine list -g $ResourceGroup --query "[].{name:name, status:status, agentVersion:agentVersion}" -o json 2>$null | ConvertFrom-Json
+    $arcServers = az connectedmachine list -g $ResourceGroup --query '[].{name:name, status:status, agentVersion:agentVersion}' -o json 2>$null | ConvertFrom-Json
     if ($arcServers -and $arcServers.Count -gt 0) {
         Write-Host "Arc-enabled servers:" -ForegroundColor White
         foreach ($s in $arcServers) {
@@ -315,7 +315,7 @@ if ($errors) {
     }
 
     # Azure Local cluster
-    $cluster = az stack-hci cluster list -g $ResourceGroup --query "[0].{name:name, status:status}" -o json 2>$null | ConvertFrom-Json
+    $cluster = az stack-hci cluster list -g $ResourceGroup --query '[0].{name:name, status:status}' -o json 2>$null | ConvertFrom-Json
     if ($cluster -and $cluster.name) {
         $color = switch ($cluster.status) {
             "ConnectedRecently" { "Green" }
@@ -328,7 +328,7 @@ if ($errors) {
     }
 
     # Custom location
-    $customLoc = az customlocation list -g $ResourceGroup --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>$null | ConvertFrom-Json
+    $customLoc = az customlocation list -g $ResourceGroup --query '[0].{name:name, provisioningState:provisioningState}' -o json 2>$null | ConvertFrom-Json
     if ($customLoc -and $customLoc.name) {
         $color = if ($customLoc.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
         Write-Host "Custom location: $($customLoc.name) — $($customLoc.provisioningState)" -ForegroundColor $color
@@ -337,7 +337,7 @@ if ($errors) {
     }
 
     # Connected Kubernetes clusters (deployed via exercises, not part of base setup)
-    $k8s = az connectedk8s list -g $ResourceGroup --query "[].{name:name, connectivityStatus:connectivityStatus}" -o json 2>$null | ConvertFrom-Json
+    $k8s = az connectedk8s list -g $ResourceGroup --query '[].{name:name, connectivityStatus:connectivityStatus}' -o json 2>$null | ConvertFrom-Json
     if ($k8s -and $k8s.Count -gt 0) {
         Write-Host "Connected Kubernetes:" -ForegroundColor White
         foreach ($c in $k8s) {
@@ -347,13 +347,13 @@ if ($errors) {
     }
 
     # Arc Gateway (if deployed)
-    $gw = az rest --method get --url "/subscriptions/{subscriptionId}/resourceGroups/$ResourceGroup/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" --query "value[0].{name:name, state:properties.gatewayType}" -o json 2>$null | ConvertFrom-Json
+    $gw = az rest --method get --url "/subscriptions/{subscriptionId}/resourceGroups/$ResourceGroup/providers/Microsoft.HybridCompute/gateways?api-version=2024-03-31-preview" --query 'value[0].{name:name, state:properties.gatewayType}' -o json 2>$null | ConvertFrom-Json
     if ($gw -and $gw.name) {
         Write-Host "Arc Gateway: $($gw.name) — deployed" -ForegroundColor Green
     }
 
     # Azure Firewall (if deployed)
-    $fw = az network firewall list -g $ResourceGroup --query "[0].{name:name, provisioningState:provisioningState}" -o json 2>$null | ConvertFrom-Json
+    $fw = az network firewall list -g $ResourceGroup --query '[0].{name:name, provisioningState:provisioningState}' -o json 2>$null | ConvertFrom-Json
     if ($fw -and $fw.name) {
         $color = if ($fw.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
         Write-Host "Azure Firewall: $($fw.name) — $($fw.provisioningState)" -ForegroundColor $color

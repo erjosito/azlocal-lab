@@ -29,7 +29,7 @@ Write-Host "Found" -ForegroundColor Green
 
 # Get current power state
 $powerState = az vm get-instance-view -g $ResourceGroup -n $VmName `
-    --query "instanceView.statuses[?starts_with(code,'PowerState/')].displayStatus" -o tsv
+    --query 'instanceView.statuses[?starts_with(code,`PowerState/`)].displayStatus' -o tsv
 Write-Host "  Current state: $powerState"
 
 if ($powerState -eq "VM deallocated") {
@@ -39,7 +39,7 @@ if ($powerState -eq "VM deallocated") {
 }
 
 # Deallocate Azure Firewall first if present (saves ~$30/day)
-$fwName = az network firewall list -g $ResourceGroup --query "[0].name" -o tsv 2>$null
+$fwName = az network firewall list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
 if ($fwName) {
     Write-Host ""
     Write-Host "Deallocating Azure Firewall '$fwName' (saves ~`$30/day)..."
