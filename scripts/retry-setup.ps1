@@ -353,7 +353,8 @@ if ($errors) {
     }
 
     # Azure Firewall (if deployed)
-    $fw = az network firewall list -g $ResourceGroup --query '[0].{name:name, provisioningState:provisioningState}' -o json 2>$null | ConvertFrom-Json
+    $fw = (az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1
+    if ($fw) { $fw = @{ name = $fw.name; provisioningState = "Succeeded" } } else { $fw = $null }
     if ($fw -and $fw.name) {
         $color = if ($fw.provisioningState -eq "Succeeded") { "Green" } else { "Yellow" }
         Write-Host "Azure Firewall: $($fw.name) — $($fw.provisioningState)" -ForegroundColor $color

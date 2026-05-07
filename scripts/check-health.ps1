@@ -171,24 +171,33 @@ Write-Host ""
 
 # ── 6. Azure Firewall (optional) ─────────────────────────────────
 Write-Host "[6/7] Azure Firewall (optional)" -ForegroundColor White
-$firewalls = az network firewall list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json
-if (-not $firewalls -or $firewalls.Count -eq 0) {
+# Use az resource list (fast) instead of az network firewall list (very slow, fetches full rule sets)
+$fwResources = az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json
+if (-not $fwResources -or $fwResources.Count -eq 0) {
     Write-Check -Name "Firewall" -Status "warn" -Detail "Not deployed (optional — use deploy-firewall.ps1 to add)"
 } else {
-    foreach ($fw in $firewalls) {
-        $fwState = $fw.provisioningState
-        $fwName = $fw.name
-        if ($fwState -eq "Succeeded") {
-            $fwIp = ($fw.ipConfigurations | Select-Object -First 1).privateIPAddress
-            Write-Check -Name "$fwName — Active (private IP: $fwIp)" -Status "pass"
+    foreach ($fwRes in $fwResources) {
+        $fwName = $fwRes.name
+        $fwDetail = az resource show --ids $fwRes.id -o json 2>$null | ConvertFrom-Json
+        $fwState = $fwDetail.properties.provisioningState
+        $fwIpConfigs = $fwDetail.properties.ipConfigurations
+        if ($fwState -eq "Succeeded" -and $fwIpConfigs -and $fwIpConfigs.Count -gt 0) {
+            $fwIp = $fwIpConfigs[0].properties.privateIPAddress
+            if ($fwIp) {
+                Write-Check -Name "$fwName — Active (private IP: $fwIp)" -Status "pass"
+            } else {
+                Write-Check -Name "$fwName — Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
+            }
 
             # Check diagnostic settings
-            $diagSettings = az monitor diagnostic-settings list --resource $fw.id -o json 2>$null | ConvertFrom-Json
+            $diagSettings = az monitor diagnostic-settings list --resource $fwRes.id -o json 2>$null | ConvertFrom-Json
             if ($diagSettings -and $diagSettings.Count -gt 0) {
                 Write-Check -Name "  Diagnostic settings configured" -Status "pass"
             } else {
                 Write-Check -Name "  Diagnostic settings missing" -Status "warn" -Detail "Logs not flowing. Run monitor-firewall-logs.ps1 -FixDiagnostics"
             }
+        } elseif ($fwState -eq "Succeeded") {
+            Write-Check -Name "$fwName — Deallocated (no IP config)" -Status "warn" -Detail "Run start-environment.ps1 to reallocate"
         } else {
             Write-Check -Name "$fwName — $fwState" -Status "fail"
         }

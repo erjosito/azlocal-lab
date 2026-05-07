@@ -51,23 +51,24 @@ Start-Sleep -Seconds 5
 # Start nested VMs if they are off (they may not auto-start after host deallocation)
 Write-Host ""
 Write-Host "Ensuring nested Hyper-V VMs are running..."
-$nestedResult = az vm run-command invoke -g $ResourceGroup -n $VmName `
+$nestedJson = az vm run-command invoke -g $ResourceGroup -n $VmName `
     --command-id RunPowerShellScript `
-    --scripts "Get-VM | Where-Object { `$_.State -ne 'Running' } | ForEach-Object { Start-VM -Name `$_.Name; Write-Output `"Started: `$(`$_.Name)`" }; Get-VM | Select-Object Name, State | Out-String" `
-    --query 'value[0].message' -o tsv 2>$null
+    --scripts 'Get-VM | Where-Object { $_.State -ne \"Running\" } | ForEach-Object { Start-VM -Name $_.Name; Write-Output \"Started: $($_.Name)\" }; Get-VM | Select-Object Name, State | Out-String' `
+    -o json 2>$null
+$nestedResult = if ($nestedJson) { ($nestedJson | ConvertFrom-Json).value[0].message }
 if ($nestedResult) {
     Write-Host $nestedResult
 }
 
 # Reallocate Azure Firewall if present in the resource group
-$fwName = az network firewall list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
+$fwName = (az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1 -ExpandProperty name
 if ($fwName) {
     Write-Host ""
     Write-Host "Reallocating Azure Firewall '$fwName'..."
     # After deallocation ipConfigurations is empty, so look up PIP and subnet by name
     $fwPipName = "$fwName-pip"
     $fwPipId = az network public-ip show -g $ResourceGroup -n $fwPipName --query "id" -o tsv 2>$null
-    $vnetName = az network vnet list -g $ResourceGroup --query '[0].name' -o tsv 2>$null
+    $vnetName = (az network vnet list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json) | Select-Object -First 1 -ExpandProperty name
     $fwSubnetId = if ($vnetName) {
         az network vnet subnet show -g $ResourceGroup --vnet-name $vnetName -n AzureFirewallSubnet --query "id" -o tsv 2>$null
     }
