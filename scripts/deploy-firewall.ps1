@@ -234,6 +234,29 @@ if (-not $firewallState) {
     Write-Host "Azure Firewall '$FirewallName' already exists ($firewallState)."
 }
 
+# Ensure policy is associated with the firewall (critical: without this, no rules are active)
+Write-Host "Verifying firewall policy association..."
+$subscriptionId = az account show --query "id" -o tsv
+$fwUri = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/azureFirewalls/$FirewallName"
+$policyUri = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/firewallPolicies/$PolicyName"
+$linkedPolicy = az rest --method GET --uri "${fwUri}?api-version=2023-09-01" --query "properties.firewallPolicy.id" -o tsv 2>$null
+if (-not $linkedPolicy) {
+    Write-Host "  Policy not linked! Associating '$PolicyName' with '$FirewallName'..."
+    $fwJson = az rest --method GET --uri "${fwUri}?api-version=2023-09-01" 2>$null | ConvertFrom-Json
+    $fwJson.properties | Add-Member -NotePropertyName firewallPolicy -NotePropertyValue @{id=$policyUri} -Force
+    $fwJson.PSObject.Properties.Remove('etag')
+    $fwJson.properties.PSObject.Properties.Remove('provisioningState')
+    $tempFile = [System.IO.Path]::GetTempFileName()
+    $fwJson | ConvertTo-Json -Depth 10 | Set-Content -Path $tempFile -Encoding utf8
+    az rest --method PUT --uri "${fwUri}?api-version=2023-09-01" --body "@$tempFile" -o none
+    Remove-Item $tempFile -ErrorAction SilentlyContinue
+    Write-Host "  Policy linked. Waiting for firewall to finish updating..."
+    do { Start-Sleep 15; $state = az rest --method GET --uri "${fwUri}?api-version=2023-09-01" --query "properties.provisioningState" -o tsv 2>$null } while ($state -eq 'Updating')
+    Write-Host "  Firewall state: $state"
+} else {
+    Write-Host "  Policy already linked."
+}
+
 # Ensure IP configuration is bound (az network firewall create sometimes creates without it)
 Write-Host "Verifying IP configuration..."
 $firewallPrivateIp = (az network firewall show -g $ResourceGroup -n $FirewallName -o json 2>$null | ConvertFrom-Json).ipConfigurations[0].privateIpAddress

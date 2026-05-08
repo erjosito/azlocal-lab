@@ -365,6 +365,30 @@ else
     echo "Azure Firewall '$FIREWALL_NAME' already exists ($FIREWALL_STATE)."
 fi
 
+# Ensure policy is associated with the firewall (critical: without this, no rules are active)
+echo "Verifying firewall policy association..."
+SUBSCRIPTION_ID=$(az account show --query "id" -o tsv)
+FW_URI="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/azureFirewalls/${FIREWALL_NAME}"
+POLICY_URI="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/firewallPolicies/${POLICY_NAME}"
+LINKED_POLICY=$(az rest --method GET --uri "${FW_URI}?api-version=2023-09-01" --query "properties.firewallPolicy.id" -o tsv 2>/dev/null || true)
+if [[ -z "$LINKED_POLICY" || "$LINKED_POLICY" == "None" ]]; then
+    echo "  Policy not linked! Associating '$POLICY_NAME' with '$FIREWALL_NAME'..."
+    TEMP_FILE=$(mktemp)
+    az rest --method GET --uri "${FW_URI}?api-version=2023-09-01" 2>/dev/null | \
+        jq 'del(.etag) | .properties.firewallPolicy = {"id": "'"${POLICY_URI}"'"} | del(.properties.provisioningState)' > "$TEMP_FILE"
+    az rest --method PUT --uri "${FW_URI}?api-version=2023-09-01" --body "@${TEMP_FILE}" -o none
+    rm -f "$TEMP_FILE"
+    echo "  Policy linked. Waiting for firewall to finish updating..."
+    while true; do
+        sleep 15
+        STATE=$(az rest --method GET --uri "${FW_URI}?api-version=2023-09-01" --query "properties.provisioningState" -o tsv 2>/dev/null || true)
+        if [[ "$STATE" != "Updating" ]]; then break; fi
+    done
+    echo "  Firewall state: $STATE"
+else
+    echo "  Policy already linked."
+fi
+
 echo "Verifying IP configuration..."
 FIREWALL_PRIVATE_IP=$(az_text network firewall show -g "$RESOURCE_GROUP" -n "$FIREWALL_NAME" --query "ipConfigurations[0].privateIpAddress" -o tsv 2>/dev/null || true)
 if [[ -z "$FIREWALL_PRIVATE_IP" || "$FIREWALL_PRIVATE_IP" == "None" ]]; then
