@@ -3,6 +3,7 @@
 #
 # Checks the status of all key components:
 #   - LocalBox-Client VM (running)
+#   - Nested Hyper-V VMs (AzSMGMT, AzSHOST1, AzSHOST2)
 #   - Azure Arc-connected servers (connected)
 #   - HCI cluster registration & health
 #   - Arc Resource Bridge (running)
@@ -75,8 +76,66 @@ if (-not $vmJson) {
 }
 Write-Host ""
 
-# ── 2. Arc-Connected Servers ──────────────────────────────────────
-Write-Host "[2/7] Arc-Connected Servers" -ForegroundColor White
+# ── 2. Nested Hyper-V VMs ─────────────────────────────────────────
+Write-Host "[2/8] Nested Hyper-V VMs" -ForegroundColor White
+if ($vmJson -and $vmState -eq "VM running") {
+    try {
+        $nestedScript = 'Get-VM | Select-Object Name, State, Uptime | ConvertTo-Json -Compress'
+        $nestedRaw = az vm run-command invoke -g $ResourceGroup -n $vmName `
+            --command-id RunPowerShellScript --scripts $nestedScript -o json 2>$null
+        $nestedJsonStr = ($nestedRaw | Out-String) -replace '(?s)^.*?(?=\{)', ''
+        $nestedMsg = $null
+        if ($nestedJsonStr -match '^\{') {
+            $nestedMsg = ($nestedJsonStr | ConvertFrom-Json).value[0].message
+        }
+        if ($nestedMsg) {
+            # The message has [stdout] and [stderr] sections
+            $stdout = ($nestedMsg -split '\[stdout\]')[1] -split '\[stderr\]' | Select-Object -First 1
+            $stdout = $stdout.Trim()
+            if ($stdout) {
+                # Wrap in array if single object
+                if ($stdout -notmatch '^\[') { $stdout = "[$stdout]" }
+                $nestedVMs = $stdout | ConvertFrom-Json
+                foreach ($nvm in $nestedVMs) {
+                    $nvmName = $nvm.Name
+                    $nvmState = $nvm.State
+                    # State is an enum int when serialized: 2=Running, 3=Off, 6=Saved, etc.
+                    $stateStr = switch ($nvmState) {
+                        { $_ -eq 2 -or $_ -eq "Running" }   { "Running" }
+                        { $_ -eq 3 -or $_ -eq "Off" }       { "Off" }
+                        { $_ -eq 6 -or $_ -eq "Saved" }     { "Saved" }
+                        { $_ -eq 9 -or $_ -eq "Paused" }    { "Paused" }
+                        { $_ -eq 10 -or $_ -eq "Starting" } { "Starting" }
+                        default { "$nvmState" }
+                    }
+                    $uptimeStr = if ($nvm.Uptime) {
+                        $ts = [TimeSpan]::Parse(($nvm.Uptime -replace '\..*$', ''))
+                        "{0}d {1}h {2}m" -f $ts.Days, $ts.Hours, $ts.Minutes
+                    } else { "" }
+                    if ($stateStr -eq "Running") {
+                        Write-Check -Name "$nvmName - Running" -Status "pass" -Detail "Uptime: $uptimeStr"
+                    } elseif ($stateStr -eq "Starting") {
+                        Write-Check -Name "$nvmName - Starting" -Status "warn" -Detail "VM is booting"
+                    } else {
+                        Write-Check -Name "$nvmName - $stateStr" -Status "fail" -Detail "Expected Running"
+                    }
+                }
+            } else {
+                Write-Check -Name "Nested VMs" -Status "warn" -Detail "Could not parse VM list from host"
+            }
+        } else {
+            Write-Check -Name "Nested VMs" -Status "warn" -Detail "No response from run-command"
+        }
+    } catch {
+        Write-Check -Name "Nested VMs" -Status "warn" -Detail "Error querying: $($_.Exception.Message)"
+    }
+} else {
+    Write-Check -Name "Nested VMs" -Status "warn" -Detail "LocalBox-Client not running — cannot check nested VMs"
+}
+Write-Host ""
+
+# ── 3. Arc-Connected Servers ──────────────────────────────────────
+Write-Host "[3/8] Arc-Connected Servers" -ForegroundColor White
 $arcServers = az connectedmachine list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json
 if (-not $arcServers -or $arcServers.Count -eq 0) {
     Write-Check -Name "Arc servers found" -Status "fail" -Detail "No Arc-connected machines in resource group"
@@ -105,7 +164,7 @@ if (-not $arcServers -or $arcServers.Count -eq 0) {
 Write-Host ""
 
 # ── 3. HCI Cluster ───────────────────────────────────────────────
-Write-Host "[3/7] Azure Stack HCI Cluster" -ForegroundColor White
+Write-Host "[4/8] Azure Stack HCI Cluster" -ForegroundColor White
 $hciClusters = az resource list -g $ResourceGroup --resource-type "Microsoft.AzureStackHCI/clusters" -o json 2>$null | ConvertFrom-Json
 if (-not $hciClusters -or $hciClusters.Count -eq 0) {
     Write-Check -Name "HCI cluster" -Status "fail" -Detail "No HCI cluster found in resource group"
@@ -129,7 +188,7 @@ if (-not $hciClusters -or $hciClusters.Count -eq 0) {
 Write-Host ""
 
 # ── 4. Arc Resource Bridge ────────────────────────────────────────
-Write-Host "[4/7] Arc Resource Bridge" -ForegroundColor White
+Write-Host "[5/8] Arc Resource Bridge" -ForegroundColor White
 $bridges = az resource list -g $ResourceGroup --resource-type "Microsoft.ResourceConnector/appliances" -o json 2>$null | ConvertFrom-Json
 if (-not $bridges -or $bridges.Count -eq 0) {
     Write-Check -Name "Resource Bridge" -Status "fail" -Detail "No Arc Resource Bridge found"
@@ -151,7 +210,7 @@ if (-not $bridges -or $bridges.Count -eq 0) {
 Write-Host ""
 
 # ── 5. Custom Location ───────────────────────────────────────────
-Write-Host "[5/7] Custom Location" -ForegroundColor White
+Write-Host "[6/8] Custom Location" -ForegroundColor White
 $customLocs = az resource list -g $ResourceGroup --resource-type "Microsoft.ExtendedLocation/customLocations" -o json 2>$null | ConvertFrom-Json
 if (-not $customLocs -or $customLocs.Count -eq 0) {
     Write-Check -Name "Custom Location" -Status "fail" -Detail "No custom location found"
@@ -170,7 +229,7 @@ if (-not $customLocs -or $customLocs.Count -eq 0) {
 Write-Host ""
 
 # ── 6. Azure Firewall (optional) ─────────────────────────────────
-Write-Host "[6/7] Azure Firewall (optional)" -ForegroundColor White
+Write-Host "[7/8] Azure Firewall (optional)" -ForegroundColor White
 # Use az resource list (fast) instead of az network firewall list (very slow, fetches full rule sets)
 $fwResources = az resource list -g $ResourceGroup --resource-type "Microsoft.Network/azureFirewalls" -o json 2>$null | ConvertFrom-Json
 if (-not $fwResources -or $fwResources.Count -eq 0) {
@@ -206,7 +265,7 @@ if (-not $fwResources -or $fwResources.Count -eq 0) {
 Write-Host ""
 
 # ── 7. AKS Arc Clusters & VMs (optional) ─────────────────────────
-Write-Host "[7/7] Workloads (AKS, VMs)" -ForegroundColor White
+Write-Host "[8/8] Workloads (AKS, VMs)" -ForegroundColor White
 $aksFound = $false
 $vmsFound = $false
 
