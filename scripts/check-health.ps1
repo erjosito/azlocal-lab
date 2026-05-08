@@ -80,67 +80,70 @@ Write-Host ""
 Write-Host "[2/8] Nested Hyper-V VMs" -ForegroundColor White
 if ($vmJson -and $vmState -eq "VM running") {
     try {
-        $nestedScript = 'Get-VM | Select-Object Name, State, Uptime | ConvertTo-Json -Compress'
-        # Capture both stdout and stderr from az CLI
-        $nestedRaw = az vm run-command invoke -g $ResourceGroup -n $vmName `
-            --command-id RunPowerShellScript --scripts $nestedScript -o json 2>&1
-        $nestedStr = $nestedRaw | Out-String
-
-        # Check if az CLI itself returned an error (e.g. Conflict, timeout)
-        if ($LASTEXITCODE -ne 0) {
-            # Extract a meaningful error message from the az CLI output
-            $errMsg = if ($nestedStr -match 'Message:\s*(.+)') { $Matches[1].Trim() } else { $nestedStr.Trim() }
-            if ($errMsg.Length -gt 120) { $errMsg = $errMsg.Substring(0, 120) + "..." }
-            Write-Check -Name "Nested VMs - run-command error: $errMsg" -Status "warn"
+        # Get the VM's public IP for SSH access
+        $vmPip = az vm list-ip-addresses -g $ResourceGroup -n $vmName --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' -o tsv 2>$null
+        if (-not $vmPip) {
+            Write-Check -Name "Nested VMs - cannot determine VM public IP" -Status "warn"
         } else {
-            $nestedJsonStr = $nestedStr -replace '(?s)^.*?(?=\{)', ''
-            $nestedMsg = $null
-            if ($nestedJsonStr -match '^\{') {
-                $nestedMsg = ($nestedJsonStr | ConvertFrom-Json).value[0].message
+            # Use SSH to query nested VMs (more reliable than run-command which can be blocked by stuck extensions)
+            $sshCmd = "powershell -Command `"Get-VM | Select-Object Name, State, Uptime | ConvertTo-Json -Compress`""
+            $sshOutput = ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes -o ConnectTimeout=5 "jose@$vmPip" $sshCmd 2>$null
+
+            if (-not $sshOutput) {
+                # SSH key auth failed or not configured - fall back to run-command
+                $nestedScript = 'Get-VM | Select-Object Name, State, Uptime | ConvertTo-Json -Compress'
+                $nestedRaw = az vm run-command invoke -g $ResourceGroup -n $vmName `
+                    --command-id RunPowerShellScript --scripts $nestedScript -o json 2>&1
+                $nestedStr = $nestedRaw | Out-String
+
+                if ($LASTEXITCODE -ne 0) {
+                    $errMsg = if ($nestedStr -match 'Message:\s*(.+)') { $Matches[1].Trim() } else { $nestedStr.Trim() }
+                    if ($errMsg.Length -gt 120) { $errMsg = $errMsg.Substring(0, 120) + "..." }
+                    Write-Check -Name "Nested VMs - cannot connect (SSH failed, run-command error: $errMsg)" -Status "warn"
+                } else {
+                    $nestedJsonStr = $nestedStr -replace '(?s)^.*?(?=\{)', ''
+                    if ($nestedJsonStr -match '^\{') {
+                        $sshOutput = (($nestedJsonStr | ConvertFrom-Json).value[0].message -split '\[stdout\]')[1] -split '\[stderr\]' | Select-Object -First 1
+                        $sshOutput = if ($sshOutput) { $sshOutput.Trim() } else { "" }
+                    }
+                }
             }
-            if ($nestedMsg) {
-                # The message has [stdout] and [stderr] sections
-                $stdout = ($nestedMsg -split '\[stdout\]')[1] -split '\[stderr\]' | Select-Object -First 1
-                $stderr = ($nestedMsg -split '\[stderr\]') | Select-Object -Last 1
-                $stdout = if ($stdout) { $stdout.Trim() } else { "" }
-                $stderr = if ($stderr) { $stderr.Trim() } else { "" }
-                if ($stdout) {
-                    # Wrap in array if single object
-                    if ($stdout -notmatch '^\[') { $stdout = "[$stdout]" }
-                    $nestedVMs = $stdout | ConvertFrom-Json
-                    foreach ($nvm in $nestedVMs) {
-                        $nvmName = $nvm.Name
-                        $nvmState = $nvm.State
-                        # State is an enum int when serialized: 2=Running, 3=Off, 6=Saved, etc.
-                        $stateStr = switch ($nvmState) {
-                            { $_ -eq 2 -or $_ -eq "Running" }   { "Running" }
-                            { $_ -eq 3 -or $_ -eq "Off" }       { "Off" }
-                            { $_ -eq 6 -or $_ -eq "Saved" }     { "Saved" }
-                            { $_ -eq 9 -or $_ -eq "Paused" }    { "Paused" }
-                            { $_ -eq 10 -or $_ -eq "Starting" } { "Starting" }
-                            default { "$nvmState" }
-                        }
-                        $uptimeStr = if ($nvm.Uptime) {
-                            try {
+
+            if ($sshOutput) {
+                # Wrap in array if single object
+                $jsonStr = if ($sshOutput -is [array]) { $sshOutput -join "" } else { $sshOutput }
+                if ($jsonStr -notmatch '^\[') { $jsonStr = "[$jsonStr]" }
+                $nestedVMs = $jsonStr | ConvertFrom-Json
+                foreach ($nvm in $nestedVMs) {
+                    $nvmName = $nvm.Name
+                    $nvmState = $nvm.State
+                    $stateStr = switch ($nvmState) {
+                        { $_ -eq 2 -or $_ -eq "Running" }   { "Running" }
+                        { $_ -eq 3 -or $_ -eq "Off" }       { "Off" }
+                        { $_ -eq 6 -or $_ -eq "Saved" }     { "Saved" }
+                        { $_ -eq 9 -or $_ -eq "Paused" }    { "Paused" }
+                        { $_ -eq 10 -or $_ -eq "Starting" } { "Starting" }
+                        default { "$nvmState" }
+                    }
+                    $uptimeStr = if ($nvm.Uptime) {
+                        try {
+                            if ($nvm.Uptime -is [PSCustomObject] -or $nvm.Uptime -is [hashtable]) {
+                                # JSON object with Days, Hours, Minutes properties
+                                "{0}d {1}h {2}m" -f $nvm.Uptime.Days, $nvm.Uptime.Hours, $nvm.Uptime.Minutes
+                            } else {
                                 $ts = [TimeSpan]::Parse(($nvm.Uptime -replace '\..*$', ''))
                                 "{0}d {1}h {2}m" -f $ts.Days, $ts.Hours, $ts.Minutes
-                            } catch { "" }
-                        } else { "" }
-                        if ($stateStr -eq "Running") {
-                            Write-Check -Name "$nvmName - Running" -Status "pass" -Detail "Uptime: $uptimeStr"
-                        } elseif ($stateStr -eq "Starting") {
-                            Write-Check -Name "$nvmName - Starting" -Status "warn" -Detail "VM is booting"
-                        } else {
-                            Write-Check -Name "$nvmName - $stateStr" -Status "fail" -Detail "Expected Running"
-                        }
+                            }
+                        } catch { "" }
+                    } else { "" }
+                    if ($stateStr -eq "Running") {
+                        Write-Check -Name "$nvmName - Running" -Status "pass" -Detail "Uptime: $uptimeStr"
+                    } elseif ($stateStr -eq "Starting") {
+                        Write-Check -Name "$nvmName - Starting" -Status "warn" -Detail "VM is booting"
+                    } else {
+                        Write-Check -Name "$nvmName - $stateStr" -Status "fail" -Detail "Expected Running"
                     }
-                } elseif ($stderr) {
-                    Write-Check -Name "Nested VMs - script error: $stderr" -Status "warn"
-                } else {
-                    Write-Check -Name "Nested VMs - no output (host may still be booting)" -Status "warn"
                 }
-            } else {
-                Write-Check -Name "Nested VMs - empty response from run-command" -Status "warn"
             }
         }
     } catch {
